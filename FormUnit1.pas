@@ -10,15 +10,10 @@ uses
   hdhr, REST.json, REST.Client, ceton, IdBaseComponent, IdScheduler,
   IdSchedulerOfThreadDefault, IdThread, ActiveX, FMX.EditBox, FMX.NumberBox,
   System.Diagnostics, System.IOUtils, FMX.Layouts, FMX.ListBox, FMX.Utils,
-  System.Math, ProxyService, IdContext;
+  System.Math, ProxyService, IdContext, ProxyServer,
+  WinApi.Windows, Winapi.ShellApi;
 
 type
-  TIdCOMThread = class(TIdThreadWithTask)
-  protected
-    procedure AfterExecute; override;
-    procedure BeforeExecute; override;
-  end;
-
   TChannelListBoxItem = class(TListBoxItem)
   private
     fCheck: TCheckBox;
@@ -33,7 +28,6 @@ type
     ButtonStart: TButton;
     ButtonStop: TButton;
     ButtonOpenBrowser: TButton;
-    IdScheduler: TIdSchedulerOfThreadDefault;
     Button2: TButton;
     NumberBox1: TNumberBox;
     Button3: TButton;
@@ -55,10 +49,7 @@ type
     procedure Button1Click(Sender: TObject);
   private
     { Private declarations }
-    fServer: TIdHTTPWebBrokerBridge;
-
-    fTunerIndex: Integer;
-    fPacket: TVideoPacket;
+    fViewer: TCetonViewer;
 
     fChannelMap: TChannelMap;
 
@@ -69,7 +60,6 @@ type
     procedure StartServer;
 
     procedure ApplicationIdle(Sender: TObject; var Done: Boolean);
-    procedure ServerException(AContext: TIdContext; AException: Exception);
   public
     { Public declarations }
   end;
@@ -81,31 +71,12 @@ implementation
 
 {$R *.fmx}
 
-uses
-  WinApi.Windows, Winapi.ShellApi, Datasnap.DSSession, ServerContainerUnit1;
-
-{ TIdCOMThread }
-
-procedure TIdCOMThread.AfterExecute;
-begin
-  inherited;
-
-  CoUninitialize;
-end;
-
-procedure TIdCOMThread.BeforeExecute;
-begin
-  Coinitialize(nil);
-
-  inherited;
-end;
-
 { TMainForm }
 
 procedure TMainForm.ApplicationIdle(Sender: TObject; var Done: Boolean);
 begin
-  ButtonStart.Enabled := not FServer.Active;
-  ButtonStop.Enabled := FServer.Active;
+  ButtonStart.Enabled := not ProxyServerModule.Active;
+  ButtonStop.Enabled := ProxyServerModule.Active;
 end;
 
 procedure TMainForm.ButtonOpenBrowserClick(Sender: TObject);
@@ -124,30 +95,16 @@ begin
   StartServer;
 end;
 
-procedure TerminateThreads;
-begin
-  if TDSSessionManager.Instance <> nil then
-    TDSSessionManager.Instance.TerminateAllSessions;
-end;
-
 procedure TMainForm.ButtonStopClick(Sender: TObject);
 begin
-  TerminateThreads;
-  FServer.Active := False;
-  FServer.Bindings.Clear;
+  ProxyServerModule.StopServer;
 end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 begin
-  IdScheduler.ThreadClass := TIdCOMThread;
-
-  fServer := TIdHTTPWebBrokerBridge.Create(Self);
-  fServer.Scheduler := IdScheduler;
-  fServer.OnException := ServerException;
-
   Application.OnIdle := ApplicationIdle;
 
-  fTunerIndex := -1;
+  fViewer := TCetonViewer.Invalid;
 
   fChannelMap := TChannelMap.Create;
 
@@ -156,30 +113,17 @@ end;
 
 procedure TMainForm.StartServer;
 begin
-  if not FServer.Active then
-  begin
-    FServer.Bindings.Clear;
-    with FServer.Bindings.Add do
-    begin
-      Port := 80;
-    end;
-    with FServer.Bindings.Add do
-    begin
-      Port := HDHR_HTTP_PORT;
-    end;
-    FServer.Active := True;
-  end;
+  ProxyServerModule.StartServer;
 end;
 
 procedure TMainForm.Button2Click(Sender: TObject);
 begin
-  if FTunerIndex > -1 then
+  if fViewer.IsValid then
   begin
-    Client.StopStream(FTunerIndex);
-    FTunerIndex := -1;
+    Client.StopStream(fViewer);
   end;
 
-  Client.StartStream(Round(NumberBox1.Value), FTunerIndex, FPacket);
+  Client.StartStream(Round(NumberBox1.Value), fViewer);
 end;
 
 function TMainForm.Client: TCetonClient;
@@ -189,10 +133,9 @@ end;
 
 procedure TMainForm.Button3Click(Sender: TObject);
 begin
-  if FTunerIndex > -1 then
+  if fViewer.IsValid then
   begin
-    Client.StopStream(FTunerIndex);
-    FTunerIndex := -1;
+    Client.StopStream(fViewer);
   end;
 end;
 
@@ -200,20 +143,28 @@ procedure TMainForm.Button4Click(Sender: TObject);
 var
   lStopWatch: TStopWatch;
   lFS: TFileStream;
+  lBuffer: TRingBuffer;
 begin
-  lStopWatch := TStopwatch.StartNew;
-  while lStopWatch.ElapsedMilliseconds <= 10 * 1000 do
-  begin
-    Client.ReadStreamPacket(fTunerIndex, FPacket);
+  lBuffer := TRingBuffer.Create;
+  try
+    lStopWatch := TStopwatch.StartNew;
+    while lStopWatch.ElapsedMilliseconds <= 10 * 1000 do
+    begin
+      Client.ReadStream(fViewer, lBuffer, 32000, 5000);
 
-    Log.D('Writing packet %d', [FPacket.Size]);
-{
-    lFS := TFile.Open(edit1.Text, TFileMode.fmAppend);
-    try
-      lFS.WriteData(FPacket.Data, FPacket.Size);
-    finally
-      lFS.Free;
-    end;}
+      Log.D('Buffer size %d', [lBuffer.Size]);
+      lBuffer.Seek(32000, soCurrent);
+
+ {
+      lFS := TFile.Open(edit1.Text, TFileMode.fmAppend);
+      try
+        lFS.WriteData(FPacket.Data, FPacket.Size);
+      finally
+        lFS.Free;
+      end;}
+    end;
+  finally
+    lBuffer.Free;
   end;
 end;
 
@@ -283,12 +234,6 @@ procedure TMainForm.lbChannelsChangeCheck(Sender: TObject);
 begin
   TChannelMapItem(TListBoxItem(Sender).Data).Visible := TListBoxItem(Sender).IsChecked;
   Client.ApplyChannelConfig(fChannelMap);
-end;
-
-procedure TMainForm.ServerException(AContext: TIdContext;
-  AException: Exception);
-begin
-  // Do nothing
 end;
 
 { TChannelListBoxItem }

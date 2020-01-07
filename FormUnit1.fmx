@@ -122,9 +122,4 @@ object MainForm: TMainForm
       OnClick = Button1Click
     end
   end
-  object IdScheduler: TIdSchedulerOfThreadDefault
-    MaxThreads = 0
-    Left = 280
-    Top = 88
-  end
 end

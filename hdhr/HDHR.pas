@@ -9,6 +9,7 @@ uses
 
 const
   HDHR_HTTP_PORT = 5004;
+  HDHR_DISCOVERY_PORT = 65001;
 
 type
 (*

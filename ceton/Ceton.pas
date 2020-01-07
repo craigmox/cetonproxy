@@ -145,6 +145,18 @@ type
     class procedure TuneChannel(const aClient: TRestClient; const aTunerID, aChannel: Integer); static;
   end;
 
+  TRingBuffer = class
+  private
+    fData: TBytes;
+    fStartIndex, fSize: Integer;
+    procedure Resize(const aSize: Integer);
+  public
+    procedure Write(var Buffer; Count: Longint);
+    function Read(var Buffer; Count: Longint): Longint;
+    function Seek(const Offset: Integer; Origin: TSeekOrigin): Integer;
+    property Size: Integer read fSize;
+  end;
+
   {
 
     0                   1                   2                   3
@@ -183,26 +195,27 @@ type
   TVideoPacket = record
     Data: TBytes;
     Size: Integer;
-    ReadCount: Integer;
-    Ready: Boolean;
+  end;
 
-    Index: Integer;
-
-    class function Empty: TVideoPacket; static;
+  TVideoReader = record
+    Packet: TVideoPacket;
+    ReaderIndex: Integer;
   end;
 
   TRTPVideoSink = class
   private
     fServer: TIdUDPServer;
-    fReaderCount: Integer;
-    fBufferEvent, fReadEvent: TEvent;
+    fWriteEvent: TEvent;
 
     fLastHeader: TRTPHeader;
 
     fPackets: TArray<TVideoPacket>;
-    fPacketIndex: Integer;
+    fWritePacketIndex: Integer;
+
+    fReaderPacketIndexes: TArray<Integer>;
 
     function GetPort: Integer;
+    procedure TimeoutError;
   protected
     procedure Lock;
     procedure Unlock;
@@ -212,13 +225,18 @@ type
     constructor Create(const aPacketSize, aPacketCount: Integer);
     destructor Destroy; override;
 
-    procedure Read(var aPacket: TVideoPacket);
+    procedure Read(var aReader: TVideoReader; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
+    function WaitForSignal(const aReader: TVideoReader; const aTimeoutMs: Integer): Boolean;
 
-    procedure RegisterReader(out aPacket: TVideoPacket);
-    procedure UnregisterReader;
+    procedure RegisterReader(out aReader: TVideoReader);
+    procedure UnregisterReader(var aReader: TVideoReader);
 
     property Port: Integer read GetPort;
   end;
+
+
+
+
 
   TTuner = class
   private
@@ -272,6 +290,15 @@ type
     property ChannelMap: TChannelMap read fChannelMap;
   end;
 
+  TCetonViewer = record
+    TunerIndex: Integer;
+    Reader: TVideoReader;
+
+    function IsValid: Boolean;
+
+    class function Invalid: TCetonViewer; static;
+  end;
+
   TCetonClient = class
   private
     fConfig: TCetonConfig;
@@ -296,36 +323,24 @@ type
     function ChannelMapExpired(const aDays: Single): Boolean;
     procedure ApplyChannelConfig(const aChannelMap: TChannelMap);
 
-    procedure StartStream(const aChannel: Integer; out aTunerIndex: Integer; out aPacket: TVideoPacket);
-    procedure StopStream(const aTunerIndex: Integer);
-    procedure ReadStreamPacket(const aTunerIndex: Integer; var aPacket: TVideoPacket);
+    procedure StartStream(const aChannel: Integer; out aViewer: TCetonViewer);
+    procedure StopStream(var aViewer: TCetonViewer);
+    procedure ReadStream(var aViewer: TCetonViewer; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
 
     property TunerAddress: String read GetTunerAddress;
-  end;
-
-  TRingBuffer = class
-  private
-    fData: TBytes;
-    fStartIndex, fSize: Integer;
-    procedure Realign;
-  public
-    procedure Write(var Buffer; Count: Longint);
-    function Read(var Buffer; Count: Longint): Longint;
-    property Size: Integer read fSize;
   end;
 
   TCetonVideoStream = class(TStream)
   private
     fBuffer: TRingBuffer;
     fClient: TCetonClient;
-    fTunerIndex: Integer;
-    fPacket: TVideoPacket;
+    fViewer: TCetonViewer;
   public
     constructor Create(const aClient: TCetonClient; const aChannel: Integer); reintroduce;
     destructor Destroy; override;
 
     function Read(var Buffer; Count: Longint): Longint; override;
-    function Seek(Offset: Longint; Origin: Word): Longint; override;
+    function Seek(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
   end;
 
 implementation
@@ -606,6 +621,8 @@ class procedure TREST.StartStream(const aClient: TRestClient;
 var
   lRequest: TStartStreamRequest;
 begin
+  Log.d('Starting stream on tuner %d to %s:%d', [aTunerID, aIP, aPort]);
+
   lRequest := TStartStreamRequest.Create(nil);
   try
     lRequest.Client := aClient;
@@ -625,6 +642,8 @@ class procedure TREST.StopStream(const aClient: TRestClient;
 var
   lRequest: TStopStreamRequest;
 begin
+  Log.d('Stopping stream on tuner %d', [aTunerID]);
+
   lRequest := TStopStreamRequest.Create(nil);
   try
     lRequest.Client := aClient;
@@ -642,6 +661,8 @@ class procedure TREST.TuneChannel(const aClient: TRestClient; const aTunerID,
 var
   lRequest: TTuneChannelRequest;
 begin
+  Log.d('Setting channel on tuner %d to %d', [aTunerID, aChannel]);
+
   lRequest := TTuneChannelRequest.Create(nil);
   try
     lRequest.Client := aClient;
@@ -734,65 +755,91 @@ begin
   end;
 end;
 
-procedure TCetonClient.StartStream(const aChannel: Integer; out aTunerIndex: Integer; out aPacket: TVideoPacket);
+procedure TCetonClient.StartStream(const aChannel: Integer; out aViewer: TCetonViewer);
 var
   lTuner: TTuner;
+  lReader: TVideoReader;
+  lReceivedPacket: Boolean;
+  lCount: Integer;
 begin
   Lock;
   try
     NeedConfig;
 
-    aTunerIndex := fTunerList.Find(aChannel);
-    if aTunerIndex = -1 then
+    aViewer.TunerIndex := fTunerList.Find(aChannel);
+    if aViewer.TunerIndex = -1 then
       raise ECetonTunerError.Create('All tuners are busy');
 
-    lTuner := fTunerList[aTunerIndex];
+    lTuner := fTunerList[aViewer.TunerIndex];
 
+    lTuner.Channel := aChannel;
+    lTuner.Streaming := True;
     lTuner.RefCount := lTuner.RefCount + 1;
-    lTuner.Sink.RegisterReader(aPacket);
 
-    if lTuner.Channel <> aChannel then
-    begin
-      lTuner.Channel := aChannel;
+    lTuner.Sink.RegisterReader(aViewer.Reader);
 
-      TREST.TuneChannel(fClient, aTunerIndex, aChannel);
-    end;
+    // Use another reader to wait for signal before returning
+    // If there's an issue, then we can fix it right now
+    lTuner.Sink.RegisterReader(lReader);
+    try
+      lCount := 0;
+      repeat
+        // Only send tuning commands if we are the first to request from the tuner or
+        // we're on a second/third try
+        if (lCount > 0) or (lTuner.RefCount = 1) then
+        begin
+          TREST.StopStream(fClient, aViewer.TunerIndex);
+          TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
+          TREST.StartStream(fClient, aViewer.TunerIndex, GetLocalIP, lTuner.Sink.Port);
+        end;
 
-    if not lTuner.Streaming then
-    begin
-      lTuner.Streaming := True;
+        lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
+        Inc(lCount);
 
-      TREST.StartStream(fClient, aTunerIndex, GetLocalIP, lTuner.Sink.Port);
+        if lCount >= 3 then
+        begin
+          Log.D('No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
+
+          raise ECetonTunerError.Create('No video data');
+        end;
+      until lReceivedPacket or (lCount >= 3);
+    finally
+      lTuner.Sink.UnregisterReader(lReader);
     end;
   finally
     Unlock;
   end;
 end;
 
-procedure TCetonClient.StopStream(const aTunerIndex: Integer);
+procedure TCetonClient.StopStream(var aViewer: TCetonViewer);
 var
   lTuner: TTuner;
 begin
-  Lock;
   try
-    NeedConfig;
+    Lock;
+    try
+      NeedConfig;
 
-    lTuner := fTunerList[aTunerIndex];
+      lTuner := fTunerList[aViewer.TunerIndex];
 
-    lTuner.RefCount := lTuner.RefCount - 1;
-    lTuner.Sink.UnregisterReader;
+      lTuner.Sink.UnregisterReader(aViewer.Reader);
 
-    if lTuner.RefCount = 0 then
-    begin
-      lTuner.RemoveSink;
+      lTuner.RefCount := lTuner.RefCount - 1;
 
-      lTuner.Channel := 0;
-      lTuner.Streaming := False;
+      if lTuner.RefCount = 0 then
+      begin
+        lTuner.RemoveSink;
 
-      TREST.StopStream(fClient, aTunerIndex);
+        lTuner.Channel := 0;
+        lTuner.Streaming := False;
+
+        TREST.StopStream(fClient, aViewer.TunerIndex);
+      end;
+    finally
+      Unlock;
     end;
   finally
-    Unlock;
+    aViewer := TCetonViewer.Invalid;
   end;
 end;
 
@@ -806,14 +853,13 @@ begin
   end;
 end;
 
-procedure TCetonClient.ReadStreamPacket(const aTunerIndex: Integer;
-  var aPacket: TVideoPacket);
+procedure TCetonClient.ReadStream(var aViewer: TCetonViewer; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
 begin
   Lock;
   try
     NeedConfig;
 
-    fTunerList[aTunerIndex].Sink.Read(aPacket);
+    fTunerList[aViewer.TunerIndex].Sink.Read(aViewer.Reader, aBuffer, aCount, aTimeoutMs);
   finally
     Unlock;
   end;
@@ -973,8 +1019,7 @@ begin
   for i := 0 to High(fPackets) do
     SetLength(fPackets[i].Data, aPacketSize);
 
-  fBufferEvent := TEvent.Create(nil, True, False, '');
-  fReadEvent := TEvent.Create(nil, True, False, '');
+  fWriteEvent := TEvent.Create(nil, True, False, '');
 
   fServer.Active := True;
 end;
@@ -983,8 +1028,7 @@ destructor TRTPVideoSink.Destroy;
 begin
   fServer.Free;
 
-  fBufferEvent.Free;
-  fReadEvent.Free;
+  fWriteEvent.Free;
 
   inherited;
 end;
@@ -1003,12 +1047,10 @@ procedure TRTPVideoSink.UDPRead(AThread: TIdUDPListenerThread;
   const AData: TIdBytes; ABinding: TIdSocketHandle);
 var
   lPacket: PVideoPacket;
-  lToWrite, lWritten: Integer;
+  lWritten, lToWrite: Integer;
   lHeader: PRTPHeader;
+  i: Integer;
 begin
-//  Log.D('Received %d byte packet', [Length(aData)]);
-//  TFile.WriteAllBytes('d:\temp\temp.rtp', TBytes(aData));
-
   if Length(AData) < 12 then
     Exit;
 
@@ -1024,60 +1066,37 @@ begin
   fLastHeader := lHeader^;
 
   lWritten := 12; // Skip RTP header
+  lToWrite := Length(AData)-lWritten;
 
-  repeat
-    Lock;
-    try
-      repeat
-        lPacket := @fPackets[fPacketIndex];
-        if not lPacket.Ready then
-        begin
-          lToWrite := Min(Length(AData)-lWritten, Length(lPacket.Data)-lPacket.Size);
+  Lock;
+  try
+    lPacket := @fPackets[fWritePacketIndex];
 
-          if lToWrite > 0 then
-          begin
-            Move(AData[lWritten], lPacket.Data[lPacket.Size], lToWrite);
-            Inc(lWritten, lToWrite);
-            Inc(lPacket.Size, lToWrite);
+    if Length(lPacket.Data) < lToWrite then
+      SetLength(lPacket.Data, lToWrite);
 
-            if lWritten >= Length(AData) then
-            begin
-              // Written entire packet
-              Exit;
-            end;
-          end
-          else
-          begin
-            // Can't fit anything more into packet
-            if fReaderCount > 0 then
-              lPacket.Ready := True;
+    Move(AData[lWritten], lPacket.Data[0], lToWrite);
+    lPacket.Size := lToWrite;
 
-//            Log.D('Created packet %d', [lPacket.Size]);
+    // Decide where we'll write the next packet to come in
+    fWritePacketIndex := (fWritePacketIndex + 1) mod Length(fPackets);
 
-            // Move to next
-            fPacketIndex := (fPacketIndex + 1) mod Length(fPackets);
-            lPacket := @fPackets[fPacketIndex];
-
-//            Log.D('WRITE: set buffer');
-            fBufferEvent.SetEvent;
-          end;
-        end;
-
-        if AThread.Terminated then
-          Exit;
-      until lPacket.Ready;
-
-//      Log.D('WRITE: reset read');
-      fReadEvent.ResetEvent;
-    finally
-      Unlock;
+    // If any readers will be looking at that packet index next, push them along to
+    // the next packet.  Do not allow a slow reader to drag us behind because that
+    // can lead to packet loss.
+    for i := 0 to High(fReaderPacketIndexes) do
+    begin
+      if fReaderPacketIndexes[i] = fWritePacketIndex then
+      begin
+        fReaderPacketIndexes[i] := (fReaderPacketIndexes[i] + 1) mod Length(fPackets);
+        Break;
+      end;
     end;
 
-    // We weren't able to copy the packet into the packet array because readers
-    // are behind.  Wait for a reader to finish.
-//    Log.D('WRITE: waitfor read');
-    fReadEvent.WaitFor(1000);
-  until False;
+    fWriteEvent.SetEvent;
+  finally
+    Unlock;
+  end;
 end;
 
 procedure TRTPVideoSink.Lock;
@@ -1090,74 +1109,111 @@ begin
   TMonitor.Exit(Self);
 end;
 
-procedure TRTPVideoSink.Read(var aPacket: TVideoPacket);
+procedure TRTPVideoSink.TimeoutError;
+begin
+  raise ECetonTunerError.Create('Timeout waiting for video data');
+end;
+
+procedure TRTPVideoSink.Read(var aReader: TVideoReader; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
 var
   lPacket: PVideoPacket;
 begin
+  // Attempt to read packets until the size of aBuffer reaches aCount
   repeat
     Lock;
     try
-      lPacket := @fPackets[aPacket.Index];
-      if lPacket.Ready then
+      while aBuffer.Size < aCount do
       begin
-        if Length(aPacket.Data) <> Length(lPacket.Data) then
-          SetLength(aPacket.Data, Length(lPacket.Data));
-
-        Move(lPacket.Data[0], aPacket.Data[0], lPacket.Size);
-        aPacket.Size := lPacket.Size;
-
-        aPacket.Index := (aPacket.Index + 1) mod Length(fPackets);
-
-        Inc(lPacket.ReadCount);
-        if lPacket.ReadCount >= fReaderCount then
+        lPacket := @fPackets[fReaderPacketIndexes[aReader.ReaderIndex]];
+        // Do not advance into a packet index that the writer is writing to next
+        if (fReaderPacketIndexes[aReader.ReaderIndex] <> fWritePacketIndex) then
         begin
-          // Allow packet to be used again
-          lPacket.Size := 0;
-          lPacket.Ready := False;
-          lPacket.ReadCount := 0;
-        end;
+          if Length(aReader.Packet.Data) < lPacket.Size then
+            SetLength(aReader.Packet.Data, lPacket.Size);
 
-//        Log.D('READ: set read');
-        fReadEvent.SetEvent;
+          if lPacket.Size > 0 then
+            Move(lPacket.Data[0], aReader.Packet.Data[0], lPacket.Size);
+          aReader.Packet.Size := lPacket.Size;
 
-        Exit;
+          if aReader.Packet.Size > 0 then
+            aBuffer.Write(aReader.Packet.Data[0], aReader.Packet.Size);
+
+          fReaderPacketIndexes[aReader.ReaderIndex] := (fReaderPacketIndexes[aReader.ReaderIndex] + 1) mod Length(fPackets);
+        end
+        else
+          Break;
       end;
 
-//      Log.D('READ: reset buffer');
-      fBufferEvent.ResetEvent;
+      if aBuffer.Size >= aCount then
+        Exit;
+
+      fWriteEvent.ResetEvent;
     finally
       Unlock;
     end;
 
     // Packet is not yet ready
-//    Log.D('READ: waitfor buffer');
-    fBufferEvent.WaitFor(1000);
+    if fWriteEvent.WaitFor(aTimeoutMs) = wrTimeout then
+      TimeoutError;
   until False;
 end;
 
-procedure TRTPVideoSink.RegisterReader(out aPacket: TVideoPacket);
+procedure TRTPVideoSink.RegisterReader(out aReader: TVideoReader);
+var
+  i: Integer;
 begin
   Lock;
   try
-    Inc(fReaderCount);
+    aReader.Packet := Default(TVideoPacket);
 
-    // Initialize packet index
-    aPacket := TVideoPacket.Empty;
-    aPacket.Index := fPacketIndex;
+    aReader.ReaderIndex := -1;
+    for i := 0 to High(fReaderPacketIndexes) do
+      if fReaderPacketIndexes[i] = -1 then
+      begin
+        aReader.ReaderIndex := i;
+        fReaderPacketIndexes[i] := fWritePacketIndex;
+        Break;
+      end;
+
+    if aReader.ReaderIndex = -1 then
+    begin
+      aReader.ReaderIndex := Length(fReaderPacketIndexes);
+      Insert(fWritePacketIndex, fReaderPacketIndexes, Length(fReaderPacketIndexes));
+    end;
   finally
     Unlock;
   end;
 end;
 
-procedure TRTPVideoSink.UnregisterReader;
+procedure TRTPVideoSink.UnregisterReader(var aReader: TVideoReader);
 begin
   Lock;
   try
-    Inc(fReaderCount);
+    fReaderPacketIndexes[aReader.ReaderIndex] := -1;
+    aReader.ReaderIndex := -1;
   finally
     Unlock;
   end;
-  fReadEvent.SetEvent;
+end;
+
+function TRTPVideoSink.WaitForSignal(const aReader: TVideoReader; const aTimeoutMs: Integer): Boolean;
+begin
+  repeat
+    Lock;
+    try
+      Result := fReaderPacketIndexes[aReader.ReaderIndex] <> fWritePacketIndex;
+      if Result then
+        fReaderPacketIndexes[aReader.ReaderIndex] := fWritePacketIndex
+      else
+        fWriteEvent.ResetEvent;
+    finally
+      Unlock;
+    end;
+
+    if not Result then
+      if fWriteEvent.WaitFor(aTimeoutMs) = wrTimeout then
+        Break;
+  until Result;
 end;
 
 { TTuner }
@@ -1177,20 +1233,13 @@ end;
 function TTuner.GetSink: TRTPVideoSink;
 begin
   if not Assigned(fSink) then
-    fSink := TRTPVideoSink.Create(4096*8, 100);
+    fSink := TRTPVideoSink.Create(1024, 1000);
   Result := fSink;
 end;
 
 procedure TTuner.RemoveSink;
 begin
   FreeAndNil(fSink);
-end;
-
-{ TVideoPacket }
-
-class function TVideoPacket.Empty: TVideoPacket;
-begin
-  Result := Default(TVideoPacket);
 end;
 
 { TCetonVideoStream }
@@ -1202,30 +1251,26 @@ begin
 
   fBuffer := TRingBuffer.Create;
 
-  fClient.StartStream(aChannel, fTunerIndex, fPacket);
+  fClient.StartStream(aChannel, fViewer);
 end;
 
 function TCetonVideoStream.Read(var Buffer; Count: Longint): Longint;
 begin
-  while fBuffer.Size < Count do
-  begin
-    fClient.ReadStreamPacket(fTunerIndex, fPacket);
-    fBuffer.Write(fPacket.Data[0], fPacket.Size);
-  end;
+  fClient.ReadStream(fViewer, fBuffer, Count - fBuffer.Size, 5000);
 
   Result := fBuffer.Read(Buffer, Count);
 end;
 
 destructor TCetonVideoStream.Destroy;
 begin
-  fClient.StopStream(fTunerIndex);
+  fClient.StopStream(fViewer);
 
   fBuffer.free;
 
   inherited;
 end;
 
-function TCetonVideoStream.Seek(Offset: Longint; Origin: Word): Longint;
+function TCetonVideoStream.Seek(const Offset: Int64; Origin: TSeekOrigin): Int64;
 begin
   Result := -1;
 end;
@@ -1265,10 +1310,7 @@ var
   lToWrite: Integer;
 begin
   if Length(fData) < fSize+Count then
-  begin
-    Realign;
-    SetLength(fData, fSize+Count);
-  end;
+    Resize(fSize+Count);
 
   lIndex := (fStartIndex+fSize) mod Length(fData);
   lToWrite := Min(Count, Length(fData)-lIndex);
@@ -1284,7 +1326,7 @@ function TRingBuffer.Read(var Buffer; Count: Longint): Longint;
 var
   lToRead: Integer;
 begin
-  lToRead := Min(Count, Length(fData)-fStartIndex);
+  lToRead := Min(Count, Min(fSize, Length(fData)-fStartIndex));
   if lToRead > 0 then
     Move(fData[fStartIndex], Buffer, lToRead);
   fStartIndex := (fStartIndex + lToRead) mod Length(fData);
@@ -1297,20 +1339,41 @@ begin
   end;
 end;
 
-procedure TRingBuffer.Realign;
+procedure TRingBuffer.Resize(const aSize: Integer);
 var
   lData: TBytes;
-  lSize: Integer;
 begin
-  if fStartIndex > 0 then
+  if (fStartIndex > 0) and (aSize > 0) then
   begin
-    SetLength(lData, Length(fData));
-    lSize := fSize;
-    Read(lData[0], lSize);
+    SetLength(lData, aSize);
+    fSize := Read(lData[0], aSize);
     fData := lData;
-    fSize := lSize;
     fStartIndex := 0;
+  end
+  else
+  begin
+    SetLength(fData, aSize);
+    fSize := Min(fSize, aSize);
   end;
+end;
+
+function TRingBuffer.Seek(const Offset: Integer; Origin: TSeekOrigin): Integer;
+var
+  lToRead: Integer;
+begin
+  if Origin = TSeekOrigin.soCurrent then
+  begin
+    lToRead := Min(Offset, Length(fData)-fStartIndex);
+    fStartIndex := (fStartIndex + lToRead) mod Length(fData);
+    Dec(fSize, lToRead);
+
+    if (lToRead < Offset) and (fSize > 0) then
+    begin
+      Seek(Offset-lToRead, soCurrent);
+    end;
+  end;
+
+  Result := -1;
 end;
 
 { TCetonConfig }
@@ -1406,6 +1469,19 @@ end;
 function TRTPHeader.GetVersion: UInt8;
 begin
   Result := RawVersion shr 6;
+end;
+
+{ TCetonViewer }
+
+class function TCetonViewer.Invalid: TCetonViewer;
+begin
+  Result := Default(TCetonViewer);
+  Result.TunerIndex := -1;
+end;
+
+function TCetonViewer.IsValid: Boolean;
+begin
+  Result := TunerIndex > -1;
 end;
 
 end.
