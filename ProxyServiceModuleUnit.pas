@@ -1,22 +1,57 @@
-unit ProxyService;
+unit ProxyServiceModuleUnit;
 
 interface
 
 uses
-  System.SysUtils, System.Classes, System.IOUtils,
+  System.SysUtils,
+  System.Classes,
+  System.IOUtils,
+  System.JSON,
+  System.DateUtils,
+
+  REST.Types,
+  REST.Json,
+  REST.Json.Types,
+  REST.JsonReflect,
 
   Ceton;
 
 type
+  TServiceConfig = class(TPersistent)
+  private
+    fDeviceID: UInt32;
+    [JSONOwned(False)]
+    fCeton: TCetonConfig;
+
+    procedure CreateDeviceID;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    procedure AssignTo(Dest: TPersistent); override;
+
+    function ToJSON: String;
+    class function FromJSON(const aJSON: String): TServiceConfig; static;
+
+    property Ceton: TCetonConfig read fCeton;
+    property DeviceID: UInt32 read fDeviceID write fDeviceID;
+  end;
+
   TProxyServiceModule = class(TDataModule)
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
   private
     { Private declarations }
+    fConfig: TServiceConfig;
     fClient: TCetonClient;
-    fConfig: TCetonConfig;
+
+    procedure Lock;
+    procedure Unlock;
   public
     { Public declarations }
+    procedure GetConfig(const aConfig: TServiceConfig);
+    procedure SetConfig(const aConfig: TServiceConfig);
+
     property Client: TCetonClient read fClient;
   end;
 
@@ -29,6 +64,99 @@ implementation
 
 {$R *.dfm}
 
+{ TServiceConfig }
+
+procedure TServiceConfig.CreateDeviceID;
+begin
+  fDeviceID := UInt32(Random($FFFFFFFF)+1);
+end;
+
+function TServiceConfig.ToJSON: String;
+var
+  m: TJSONMarshal;
+begin
+  m := TJSONMarshal.Create(TJSONConverter.Create);
+  try
+    m.RegisterConverter(TChannelMap, 'fList',
+      function(Data: TObject; Field: String): TListOfObjects
+      var
+        i: Integer;
+      begin
+        SetLength(Result, TChannelMap(Data).Count);
+        for i := 0 to High(Result) do
+          Result[i] := TChannelMap(Data)[i];
+      end);
+
+    Result := m.Marshal(Self).ToString;
+  finally
+    m.Free;
+  end;
+end;
+
+class function TServiceConfig.FromJSON(const aJSON: String): TServiceConfig;
+var
+  m: TJSONUnMarshal;
+  lR: TReverterEvent;
+begin
+  Result := nil;
+  try
+    m := TJSONUnMarshal.Create;
+    try
+      lR := TReverterEvent.Create(TChannelMapItem, 'list');
+      lR.ObjectsReverter :=
+        procedure(Data: TObject; Field: string; Args: TListOfObjects)
+        var
+          i: Integer;
+        begin
+          for i := 0 to High(Args) do
+            TChannelMap(Data).Add(TChannelMapItem(Args[i]));
+        end;
+      m.RegisterReverter(TChannelMap, 'list', lR);
+
+      Result := m.CreateObject(TServiceConfig, TJSONObject(TJSONObject.ParseJSONValue(aJSON))) as TServiceConfig;
+    finally
+      m.Free;
+    end;
+
+    if Result.DeviceID = 0 then
+      Result.CreateDeviceID;
+  except
+    FreeAndNil(Result);
+    Result := TServiceConfig.Create;
+  end;
+end;
+
+constructor TServiceConfig.Create;
+begin
+  fCeton := TCetonConfig.Create;
+
+  CreateDeviceID;
+end;
+
+destructor TServiceConfig.Destroy;
+begin
+  fCeton.Free;
+
+  inherited;
+end;
+
+procedure TServiceConfig.AssignTo(Dest: TPersistent);
+var
+  lDest: TServiceConfig;
+begin
+  if Dest is TServiceConfig then
+  begin
+    lDest := TServiceConfig(Dest);
+
+    lDest.fCeton.Assign(fCeton);
+    lDest.fDeviceID := fDeviceID;
+  end
+  else
+    inherited;
+end;
+
+{ TProxyServiceModule }
+
 procedure TProxyServiceModule.DataModuleCreate(Sender: TObject);
 var
   lJSON: String;
@@ -40,10 +168,11 @@ begin
   except
     // Ignore
   end;
-  fConfig := TCetonConfig.FromJSON(lJSON);
-  fConfig.TunerAddress := '192.168.1.132';
+  fConfig := TServiceConfig.FromJSON(lJSON);
 
-  fClient.SetConfig(fConfig);
+  fConfig.Ceton.TunerAddress := '192.168.1.132';
+
+  fClient.SetConfig(fConfig.Ceton);
 end;
 
 procedure TProxyServiceModule.DataModuleDestroy(Sender: TObject);
@@ -54,6 +183,40 @@ begin
   TFile.WriteAllText(TPath.GetHomePath + TPath.DirectorySeparatorChar + 'cetonproxy' + TPath.DirectorySeparatorChar + 'config.js', fConfig.ToJSON);
 
   FreeAndNil(fConfig);
+end;
+
+procedure TProxyServiceModule.GetConfig(const aConfig: TServiceConfig);
+begin
+  Lock;
+  try
+    Client.GetConfig(fConfig.Ceton);
+
+    aConfig.Assign(fConfig);
+  finally
+    Unlock;
+  end;
+end;
+
+procedure TProxyServiceModule.SetConfig(const aConfig: TServiceConfig);
+begin
+  Lock;
+  try
+    fConfig.Assign(aConfig);
+
+    Client.SetConfig(fConfig.Ceton);
+  finally
+    Unlock;
+  end;
+end;
+
+procedure TProxyServiceModule.Lock;
+begin
+  TMonitor.Enter(Self);
+end;
+
+procedure TProxyServiceModule.Unlock;
+begin
+  TMonitor.Exit(Self);
 end;
 
 end.

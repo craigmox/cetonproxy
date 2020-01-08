@@ -101,28 +101,28 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="FormUnit1.pas">
+        <DCCReference Include="ProxyFormUnit.pas">
             <Form>MainForm</Form>
             <FormType>fmx</FormType>
         </DCCReference>
-        <DCCReference Include="WebModuleUnit1.pas">
-            <Form>WebModule1</Form>
+        <DCCReference Include="ProxyWebModuleUnit.pas">
+            <Form>ProxyWebModule</Form>
             <FormType>dfm</FormType>
             <DesignClass>TWebModule</DesignClass>
         </DCCReference>
         <DCCReference Include="hdhr\HDHR.pas"/>
         <DCCReference Include="ceton\Ceton.pas"/>
-        <DCCReference Include="UIUtils.pas"/>
-        <DCCReference Include="ProxyService.pas">
+        <DCCReference Include="ProxyServiceModuleUnit.pas">
             <Form>ProxyServiceModule</Form>
             <FormType>dfm</FormType>
             <DesignClass>TDataModule</DesignClass>
         </DCCReference>
-        <DCCReference Include="ProxyServer.pas">
+        <DCCReference Include="ProxyServerModuleUnit.pas">
             <Form>ProxyServerModule</Form>
             <FormType>dfm</FormType>
             <DesignClass>TDataModule</DesignClass>
         </DCCReference>
+        <DCCReference Include="SocketUtils.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

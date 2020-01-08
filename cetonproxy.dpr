@@ -7,13 +7,13 @@ uses
   FMX.Forms,
   Web.WebReq,
   IdHTTPWebBrokerBridge,
-  FormUnit1 in 'FormUnit1.pas' {MainForm},
-  WebModuleUnit1 in 'WebModuleUnit1.pas' {WebModule1: TWebModule},
+  ProxyFormUnit in 'ProxyFormUnit.pas' {MainForm},
+  ProxyWebModuleUnit in 'ProxyWebModuleUnit.pas' {ProxyWebModule: TWebModule},
   HDHR in 'hdhr\HDHR.pas',
   Ceton in 'ceton\Ceton.pas',
-  UIUtils in 'UIUtils.pas',
-  ProxyService in 'ProxyService.pas' {ProxyServiceModule: TDataModule},
-  ProxyServer in 'ProxyServer.pas' {ProxyServerModule: TDataModule};
+  ProxyServiceModuleUnit in 'ProxyServiceModuleUnit.pas' {ProxyServiceModule: TDataModule},
+  ProxyServerModuleUnit in 'ProxyServerModuleUnit.pas' {ProxyServerModule: TDataModule},
+  SocketUtils in 'SocketUtils.pas';
 
 {$R *.res}
 

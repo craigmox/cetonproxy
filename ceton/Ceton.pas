@@ -2,6 +2,8 @@ unit Ceton;
 
 interface
 
+{$SCOPEDENUMS ON}
+
 uses
   FMX.Types,
 
@@ -9,27 +11,47 @@ uses
   System.Generics.Defaults,
   System.Generics.Collections,
   System.SysUtils,
-  System.StrUtils,
   System.NetEncoding,
-  System.IOUtils,
-  System.SyncObjs,
   System.Math,
   System.JSON,
   System.DateUtils,
+  System.StrUtils,
 
-  Xml.XmlDoc, Xml.XmlIntf,
+  Xml.XmlDoc,
+  Xml.XmlIntf,
 
-  IdUDPServer, IdGlobal, IdSocketHandle, IdStack, IdStackConsts,
+  IdStack,
 
   REST.Client,
   REST.Types,
   REST.Json,
   REST.Json.Types,
-  REST.JsonReflect;
+  REST.JsonReflect,
+
+  SocketUtils;
 
 type
   ECetonClientError = class(Exception);
   ECetonTunerError = class(Exception);
+
+  TChannelMap = class;
+
+  TCetonConfig = class(TPersistent)
+  private
+    [JSONOwned(False)]
+    fChannelMap: TChannelMap;
+    fTunerAddress: String;
+    fListenIP: String;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    procedure AssignTo(Dest: TPersistent); override;
+
+    property ListenIP: String read fListenIP write fListenIP;
+    property TunerAddress: String read fTunerAddress write fTunerAddress;
+    property ChannelMap: TChannelMap read fChannelMap;
+  end;
 
   TChannelMapItem = class(TPersistent)
   private
@@ -56,11 +78,16 @@ type
     property Visible: Boolean read fVisible write fVisible;
   end;
 
+  TChannelMapSection = (Items);
+  TChannelMapSections = set of TChannelMapSection;
+
   TChannelMap = class
   private
     [JSONOwned(False)]
     fList: TObjectList<TChannelMapItem>;
     fRequestDateTime: TDateTime;
+    [JSONMarshalled(False)]
+    fExclude: TChannelMapSections;
     function GetCount: Integer;
     function GetItem(const aIndex: Integer): TChannelMapItem;
   public
@@ -68,7 +95,8 @@ type
     destructor Destroy; override;
 
     function IndexOf(const aChannel: Integer): Integer;
-    function Add(const aChannel: Integer): TChannelMapItem;
+    function Add(const aChannel: Integer): TChannelMapItem; overload;
+    procedure Add(const aItem: TChannelMapItem); overload;
     procedure Clear;
 
     procedure CopyFromXML(const aXML: String);
@@ -83,6 +111,8 @@ type
     property Items[const aIndex: Integer]: TChannelMapItem read GetItem; default;
 
     property RequestDateTime: TDateTime read fRequestDateTime write fRequestDateTime;
+
+    property Exclude: TChannelMapSections read fExclude write fExclude;
   end;
 
   TChannelMapRequest = class(TCustomRESTRequest)
@@ -137,106 +167,27 @@ type
     property Channel: Integer read fChannel write fChannel;
   end;
 
+  TTuneProgramRequest = class(TCustomRESTRequest)
+  private
+    fProgramNumber: Integer;
+    fInstanceID: Integer;
+  protected
+    procedure DoBeforeExecute; override;
+  public
+    constructor Create(AOwner: TComponent); override;
+
+    property InstanceID: Integer read fInstanceID write fInstanceID;
+    property ProgramNumber: Integer read fProgramNumber write fProgramNumber;
+  end;
+
   TREST = class abstract
   public
     class procedure RequestChannelMap(const aClient: TRestClient; const aChannelMap: TChannelMap); static;
     class procedure StartStream(const aClient: TRestClient; const aTunerID: Integer; const aIP: String; const aPort: Integer); static;
     class procedure StopStream(const aClient: TRestClient; const aTunerID: Integer); static;
     class procedure TuneChannel(const aClient: TRestClient; const aTunerID, aChannel: Integer); static;
+    class procedure TuneProgram(const aClient: TRestClient; const aTunerID, aProgram: Integer); static;
   end;
-
-  TRingBuffer = class
-  private
-    fData: TBytes;
-    fStartIndex, fSize: Integer;
-    procedure Resize(const aSize: Integer);
-  public
-    procedure Write(var Buffer; Count: Longint);
-    function Read(var Buffer; Count: Longint): Longint;
-    function Seek(const Offset: Integer; Origin: TSeekOrigin): Integer;
-    property Size: Integer read fSize;
-  end;
-
-  {
-
-    0                   1                   2                   3
-    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-   |V=2|P|X|  CC   |M|     PT      |       sequence number         |
-   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-   |                           timestamp                           |
-   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-   |           synchronization source (SSRC) identifier            |
-   +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
-
-  }
-  PRTPHeader = ^TRTPHeader;
-  TRTPHeader = packed record
-  private
-    // HEADER 12 bytes
-    RawVersion  : UInt8;      // $80  : Version = 2
-    RawPayload  : UInt8;      //   8  : PCMA
-    RawSequence : UInt16;
-    RawTimestamp: UInt32;
-    RawSSRC     : UInt32;
-
-    class function Swap16(const aValue: UInt16): UInt16; static;
-
-    function GetPayloadType: UInt8;
-    function GetSequenceNumber: UInt16;
-    function GetVersion: UInt8;
-  public
-    property Version: UInt8 read GetVersion;
-    property SequenceNumber: UInt16 read GetSequenceNumber;
-    property PayloadType: UInt8 read GetPayloadType;
-  end;
-
-  PVideoPacket = ^TVideoPacket;
-  TVideoPacket = record
-    Data: TBytes;
-    Size: Integer;
-  end;
-
-  TVideoReader = record
-    Packet: TVideoPacket;
-    ReaderIndex: Integer;
-  end;
-
-  TRTPVideoSink = class
-  private
-    fServer: TIdUDPServer;
-    fWriteEvent: TEvent;
-
-    fLastHeader: TRTPHeader;
-
-    fPackets: TArray<TVideoPacket>;
-    fWritePacketIndex: Integer;
-
-    fReaderPacketIndexes: TArray<Integer>;
-
-    function GetPort: Integer;
-    procedure TimeoutError;
-  protected
-    procedure Lock;
-    procedure Unlock;
-
-    procedure UDPRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
-  public
-    constructor Create(const aPacketSize, aPacketCount: Integer);
-    destructor Destroy; override;
-
-    procedure Read(var aReader: TVideoReader; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
-    function WaitForSignal(const aReader: TVideoReader; const aTimeoutMs: Integer): Boolean;
-
-    procedure RegisterReader(out aReader: TVideoReader);
-    procedure UnregisterReader(var aReader: TVideoReader);
-
-    property Port: Integer read GetPort;
-  end;
-
-
-
-
 
   TTuner = class
   private
@@ -274,22 +225,6 @@ type
     property Items[const aIndex: Integer]: TTuner read GetItem; default;
   end;
 
-  TCetonConfig = class(TPersistent)
-  private
-    [JSONOwned(False)]
-    fChannelMap: TChannelMap;
-    fTunerAddress: String;
-  public
-    constructor Create;
-    destructor Destroy; override;
-
-    function ToJSON: String;
-    class function FromJSON(const aJSON: String): TCetonConfig; static;
-
-    property TunerAddress: String read fTunerAddress write fTunerAddress;
-    property ChannelMap: TChannelMap read fChannelMap;
-  end;
-
   TCetonViewer = record
     TunerIndex: Integer;
     Reader: TVideoReader;
@@ -308,26 +243,21 @@ type
     procedure Lock;
     procedure Unlock;
 
-    procedure NeedConfig;
-
-    function GetLocalIP: String;
-    function GetTunerAddress: String;
+    function GetListenIP: String;
   public
     constructor Create;
     destructor Destroy; override;
 
     procedure SetConfig(const aConfig: TCetonConfig);
+    procedure GetConfig(const aConfig: TCetonConfig);
 
     procedure RequestChannelMap;
-    procedure GetChannelMap(const aChannelMap: TChannelMap);
-    function ChannelMapExpired(const aDays: Single): Boolean;
-    procedure ApplyChannelConfig(const aChannelMap: TChannelMap);
 
-    procedure StartStream(const aChannel: Integer; out aViewer: TCetonViewer);
+    procedure StartStream(const aTuner: Integer; const aChannel: Integer; out aViewer: TCetonViewer);
     procedure StopStream(var aViewer: TCetonViewer);
     procedure ReadStream(var aViewer: TCetonViewer; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
 
-    property TunerAddress: String read GetTunerAddress;
+    property ListenIP: String read GetListenIP;
   end;
 
   TCetonVideoStream = class(TStream)
@@ -336,7 +266,7 @@ type
     fClient: TCetonClient;
     fViewer: TCetonViewer;
   public
-    constructor Create(const aClient: TCetonClient; const aChannel: Integer); reintroduce;
+    constructor Create(const aClient: TCetonClient; const aTuner: Integer; const aChannel: Integer); reintroduce;
     destructor Destroy; override;
 
     function Read(var Buffer; Count: Longint): Longint; override;
@@ -521,10 +451,13 @@ procedure TChannelMap.Assign(const aChannelMap: TChannelMap);
 var
   i: Integer;
 begin
-  Clear;
-  for i := 0 to aChannelMap.Count-1 do
-    Add(aChannelMap[i].Channel).Assign(aChannelMap[i]);
-  RequestDateTime := aChannelMap.RequestDateTime;
+  if not (TChannelMapSection.Items in aChannelMap.Exclude + fExclude) then
+  begin
+    Clear;
+    for i := 0 to aChannelMap.Count-1 do
+      Add(aChannelMap[i].Channel).Assign(aChannelMap[i]);
+  end;
+  fRequestDateTime := aChannelMap.fRequestDateTime;
 end;
 
 procedure TChannelMap.ApplyConfig(const aChannelMap: TChannelMap);
@@ -548,6 +481,11 @@ end;
 function TChannelMap.Expired(const aDays: Single): Boolean;
 begin
   Result := TTimeZone.Local.ToUniversalTime(Now)-aDays >= RequestDateTime
+end;
+
+procedure TChannelMap.Add(const aItem: TChannelMapItem);
+begin
+  fList.Add(aItem);
 end;
 
 { TChannelMapRequest }
@@ -676,6 +614,26 @@ begin
   end;
 end;
 
+class procedure TREST.TuneProgram(const aClient: TRestClient; const aTunerID,
+  aProgram: Integer);
+var
+  lRequest: TTuneProgramRequest;
+begin
+  Log.d('Setting program on tuner %d to %d', [aTunerID, aProgram]);
+
+  lRequest := TTuneProgramRequest.Create(nil);
+  try
+    lRequest.Client := aClient;
+
+    lRequest.InstanceID := aTunerID;
+    lRequest.ProgramNumber := aProgram;
+
+    lRequest.Execute;
+  finally
+    lRequest.Free;
+  end;
+end;
+
 { TTunerList }
 
 constructor TTunerList.Create;
@@ -731,14 +689,15 @@ end;
 
 constructor TCetonClient.Create;
 begin
-  fTunerList := TTunerList.Create;
   fConfig := TCetonConfig.Create;
+  fTunerList := TTunerList.Create;
 end;
 
 destructor TCetonClient.Destroy;
 begin
   fClient.Free;
   fTunerList.Free;
+  fConfig.Free;
 
   inherited;
 end;
@@ -747,28 +706,31 @@ procedure TCetonClient.RequestChannelMap;
 begin
   Lock;
   try
-    NeedConfig;
-
     TREST.RequestChannelMap(fClient, fConfig.ChannelMap);
   finally
     Unlock;
   end;
 end;
 
-procedure TCetonClient.StartStream(const aChannel: Integer; out aViewer: TCetonViewer);
+procedure TCetonClient.StartStream(const aTuner: Integer; const aChannel: Integer; out aViewer: TCetonViewer);
 var
   lTuner: TTuner;
   lReader: TVideoReader;
   lReceivedPacket: Boolean;
   lCount: Integer;
+  lIndex: Integer;
 begin
   Lock;
   try
-    NeedConfig;
-
-    aViewer.TunerIndex := fTunerList.Find(aChannel);
-    if aViewer.TunerIndex = -1 then
-      raise ECetonTunerError.Create('All tuners are busy');
+    aViewer.TunerIndex := aTuner;
+    if aViewer.TunerIndex < 0 then
+    begin
+      aViewer.TunerIndex := fTunerList.Find(aChannel);
+      if aViewer.TunerIndex = -1 then
+        raise ECetonTunerError.Create('All tuners are busy');
+    end;
+    if aViewer.TunerIndex >= fTunerList.Count then
+      raise ECetonTunerError.CreateFmt('Invalid tuner: %d', [aViewer.TunerIndex]);
 
     lTuner := fTunerList[aViewer.TunerIndex];
 
@@ -789,8 +751,12 @@ begin
         if (lCount > 0) or (lTuner.RefCount = 1) then
         begin
           TREST.StopStream(fClient, aViewer.TunerIndex);
+          TREST.TuneChannel(fClient, aViewer.TunerIndex, 0);
           TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
-          TREST.StartStream(fClient, aViewer.TunerIndex, GetLocalIP, lTuner.Sink.Port);
+          lIndex := fConfig.ChannelMap.IndexOf(aChannel);
+          if lIndex > -1 then
+            TREST.TuneProgram(fClient, aViewer.TunerIndex, fConfig.ChannelMap[lIndex].ItemProgram);
+          TREST.StartStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
         end;
 
         lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
@@ -818,8 +784,6 @@ begin
   try
     Lock;
     try
-      NeedConfig;
-
       lTuner := fTunerList[aViewer.TunerIndex];
 
       lTuner.Sink.UnregisterReader(aViewer.Reader);
@@ -843,13 +807,23 @@ begin
   end;
 end;
 
-function TCetonClient.GetLocalIP: String;
+function TCetonClient.GetListenIP: String;
 begin
-  TIdStack.IncUsage;
+  Lock;
   try
-    Result := GStack.LocalAddress;
+    Result := fConfig.ListenIP;
   finally
-    TIdStack.DecUsage;
+    Unlock;
+  end;
+
+  if Result = '' then
+  begin
+    TIdStack.IncUsage;
+    try
+      Result := GStack.LocalAddress;
+    finally
+      TIdStack.DecUsage;
+    end;
   end;
 end;
 
@@ -857,9 +831,12 @@ procedure TCetonClient.ReadStream(var aViewer: TCetonViewer; const aBuffer: TRin
 begin
   Lock;
   try
-    NeedConfig;
-
-    fTunerList[aViewer.TunerIndex].Sink.Read(aViewer.Reader, aBuffer, aCount, aTimeoutMs);
+    try
+      fTunerList[aViewer.TunerIndex].Sink.Read(aViewer.Reader, aBuffer, aCount, aTimeoutMs);
+    except
+      on e: EVideoError do
+        raise ECetonTunerError.Create(e.Message);
+    end;
   finally
     Unlock;
   end;
@@ -875,69 +852,31 @@ begin
   TMonitor.Exit(Self);
 end;
 
-procedure TCetonClient.GetChannelMap(const aChannelMap: TChannelMap);
-begin
-  Lock;
-  try
-    NeedConfig;
-
-    aChannelMap.Assign(fConfig.ChannelMap);
-  finally
-    Unlock;
-  end;
-end;
-
 procedure TCetonClient.SetConfig(const aConfig: TCetonConfig);
 begin
   Lock;
   try
-    FreeAndNil(fClient);
-    fConfig := aConfig;
-    fClient := TRESTClient.Create(Format('http://%s', [fConfig.TunerAddress]));
+    if fConfig.TunerAddress <> aConfig.TunerAddress then
+    begin
+      FreeAndNil(fClient);
+      fConfig.Assign(aConfig);
+      fClient := TRESTClient.Create(Format('http://%s', [fConfig.TunerAddress]));
 
-    fTunerList.Count := 6;
+      // TODO: Request tuner count from Ceton
+      fTunerList.Count := 6;
+    end
+    else
+      fConfig.Assign(aConfig);
   finally
     Unlock;
   end;
 end;
 
-procedure TCetonClient.NeedConfig;
-begin
-  if not Assigned(fConfig) then
-    raise ECetonClientError.Create('Configuration is not assigned');
-end;
-
-function TCetonClient.ChannelMapExpired(const aDays: Single): Boolean;
+procedure TCetonClient.GetConfig(const aConfig: TCetonConfig);
 begin
   Lock;
   try
-    NeedConfig;
-
-    Result := fConfig.ChannelMap.Expired(aDays);
-  finally
-    Unlock;
-  end;
-end;
-
-procedure TCetonClient.ApplyChannelConfig(const aChannelMap: TChannelMap);
-begin
-  Lock;
-  try
-    NeedConfig;
-
-    fConfig.ChannelMap.ApplyConfig(aChannelMap);
-  finally
-    Unlock;
-  end;
-end;
-
-function TCetonClient.GetTunerAddress: String;
-begin
-  Lock;
-  try
-    NeedConfig;
-
-    Result := fConfig.TunerAddress;
+    aConfig.Assign(fConfig);
   finally
     Unlock;
   end;
@@ -971,7 +910,7 @@ begin
   inherited;
 
   AddParameter('instance_id', IntToStr(InstanceID));
-  AddParameter('dest_ip', '192.168.200.1');
+  AddParameter('dest_ip', '192.168.200.1'); // Just set to a dummy ip to help with debugging
   AddParameter('dest_port', '8000');
   AddParameter('protocol', '0');
   AddParameter('start', '0');
@@ -1003,217 +942,22 @@ begin
   Resource := 'channel_request.cgi';
 end;
 
-{ TRTPVideoSink }
+{ TTuneProgramRequest }
 
-constructor TRTPVideoSink.Create(const aPacketSize, aPacketCount: Integer);
-var
-  i: Integer;
+procedure TTuneProgramRequest.DoBeforeExecute;
 begin
-  fServer := TIdUDPServer.Create(nil);
-  fServer.DefaultPort := 0;
-  fServer.ThreadedEvent := True;
-  fServer.OnUDPRead := UDPRead;
-  fServer.Binding.SetSockOpt(Id_SOL_SOCKET, Id_SO_RCVBUF, 1024*1024);
-
-  SetLength(fPackets, aPacketCount);
-  for i := 0 to High(fPackets) do
-    SetLength(fPackets[i].Data, aPacketSize);
-
-  fWriteEvent := TEvent.Create(nil, True, False, '');
-
-  fServer.Active := True;
-end;
-
-destructor TRTPVideoSink.Destroy;
-begin
-  fServer.Free;
-
-  fWriteEvent.Free;
-
   inherited;
+
+  AddParameter('instance_id', IntToStr(InstanceID));
+  AddParameter('program', IntToStr(ProgramNumber));
 end;
 
-function TRTPVideoSink.GetPort: Integer;
+constructor TTuneProgramRequest.Create(AOwner: TComponent);
 begin
-  if fServer.Bindings.Count > 0 then
-  begin
-    if fServer.Bindings[0].IPVersion = Id_IPv4 then
-      Exit(fServer.Bindings[0].Port);
-  end;
-  Result := 0;
-end;
+  inherited;
 
-procedure TRTPVideoSink.UDPRead(AThread: TIdUDPListenerThread;
-  const AData: TIdBytes; ABinding: TIdSocketHandle);
-var
-  lPacket: PVideoPacket;
-  lWritten, lToWrite: Integer;
-  lHeader: PRTPHeader;
-  i: Integer;
-begin
-  if Length(AData) < 12 then
-    Exit;
-
-  lHeader := @AData[0];
-
-  if fLastHeader.Version > 0 then
-  begin
-    if lHeader.SequenceNumber <> fLastHeader.SequenceNumber+1 then
-      Log.D('Out of order %d', [lHeader.SequenceNumber - fLastHeader.SequenceNumber]);
-    if lHeader.PayloadType <> fLastHeader.PayloadType then
-      Log.D('Payload type %d', [lHeader.PayloadType]);
-  end;
-  fLastHeader := lHeader^;
-
-  lWritten := 12; // Skip RTP header
-  lToWrite := Length(AData)-lWritten;
-
-  Lock;
-  try
-    lPacket := @fPackets[fWritePacketIndex];
-
-    if Length(lPacket.Data) < lToWrite then
-      SetLength(lPacket.Data, lToWrite);
-
-    Move(AData[lWritten], lPacket.Data[0], lToWrite);
-    lPacket.Size := lToWrite;
-
-    // Decide where we'll write the next packet to come in
-    fWritePacketIndex := (fWritePacketIndex + 1) mod Length(fPackets);
-
-    // If any readers will be looking at that packet index next, push them along to
-    // the next packet.  Do not allow a slow reader to drag us behind because that
-    // can lead to packet loss.
-    for i := 0 to High(fReaderPacketIndexes) do
-    begin
-      if fReaderPacketIndexes[i] = fWritePacketIndex then
-      begin
-        fReaderPacketIndexes[i] := (fReaderPacketIndexes[i] + 1) mod Length(fPackets);
-        Break;
-      end;
-    end;
-
-    fWriteEvent.SetEvent;
-  finally
-    Unlock;
-  end;
-end;
-
-procedure TRTPVideoSink.Lock;
-begin
-  TMonitor.Enter(Self);
-end;
-
-procedure TRTPVideoSink.Unlock;
-begin
-  TMonitor.Exit(Self);
-end;
-
-procedure TRTPVideoSink.TimeoutError;
-begin
-  raise ECetonTunerError.Create('Timeout waiting for video data');
-end;
-
-procedure TRTPVideoSink.Read(var aReader: TVideoReader; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
-var
-  lPacket: PVideoPacket;
-begin
-  // Attempt to read packets until the size of aBuffer reaches aCount
-  repeat
-    Lock;
-    try
-      while aBuffer.Size < aCount do
-      begin
-        lPacket := @fPackets[fReaderPacketIndexes[aReader.ReaderIndex]];
-        // Do not advance into a packet index that the writer is writing to next
-        if (fReaderPacketIndexes[aReader.ReaderIndex] <> fWritePacketIndex) then
-        begin
-          if Length(aReader.Packet.Data) < lPacket.Size then
-            SetLength(aReader.Packet.Data, lPacket.Size);
-
-          if lPacket.Size > 0 then
-            Move(lPacket.Data[0], aReader.Packet.Data[0], lPacket.Size);
-          aReader.Packet.Size := lPacket.Size;
-
-          if aReader.Packet.Size > 0 then
-            aBuffer.Write(aReader.Packet.Data[0], aReader.Packet.Size);
-
-          fReaderPacketIndexes[aReader.ReaderIndex] := (fReaderPacketIndexes[aReader.ReaderIndex] + 1) mod Length(fPackets);
-        end
-        else
-          Break;
-      end;
-
-      if aBuffer.Size >= aCount then
-        Exit;
-
-      fWriteEvent.ResetEvent;
-    finally
-      Unlock;
-    end;
-
-    // Packet is not yet ready
-    if fWriteEvent.WaitFor(aTimeoutMs) = wrTimeout then
-      TimeoutError;
-  until False;
-end;
-
-procedure TRTPVideoSink.RegisterReader(out aReader: TVideoReader);
-var
-  i: Integer;
-begin
-  Lock;
-  try
-    aReader.Packet := Default(TVideoPacket);
-
-    aReader.ReaderIndex := -1;
-    for i := 0 to High(fReaderPacketIndexes) do
-      if fReaderPacketIndexes[i] = -1 then
-      begin
-        aReader.ReaderIndex := i;
-        fReaderPacketIndexes[i] := fWritePacketIndex;
-        Break;
-      end;
-
-    if aReader.ReaderIndex = -1 then
-    begin
-      aReader.ReaderIndex := Length(fReaderPacketIndexes);
-      Insert(fWritePacketIndex, fReaderPacketIndexes, Length(fReaderPacketIndexes));
-    end;
-  finally
-    Unlock;
-  end;
-end;
-
-procedure TRTPVideoSink.UnregisterReader(var aReader: TVideoReader);
-begin
-  Lock;
-  try
-    fReaderPacketIndexes[aReader.ReaderIndex] := -1;
-    aReader.ReaderIndex := -1;
-  finally
-    Unlock;
-  end;
-end;
-
-function TRTPVideoSink.WaitForSignal(const aReader: TVideoReader; const aTimeoutMs: Integer): Boolean;
-begin
-  repeat
-    Lock;
-    try
-      Result := fReaderPacketIndexes[aReader.ReaderIndex] <> fWritePacketIndex;
-      if Result then
-        fReaderPacketIndexes[aReader.ReaderIndex] := fWritePacketIndex
-      else
-        fWriteEvent.ResetEvent;
-    finally
-      Unlock;
-    end;
-
-    if not Result then
-      if fWriteEvent.WaitFor(aTimeoutMs) = wrTimeout then
-        Break;
-  until Result;
+  Method := TRESTRequestMethod.rmPost;
+  Resource := 'program_request.cgi';
 end;
 
 { TTuner }
@@ -1233,7 +977,7 @@ end;
 function TTuner.GetSink: TRTPVideoSink;
 begin
   if not Assigned(fSink) then
-    fSink := TRTPVideoSink.Create(1024, 1000);
+    fSink := TRTPVideoSink.Create(2048, 1000);
   Result := fSink;
 end;
 
@@ -1245,13 +989,13 @@ end;
 { TCetonVideoStream }
 
 constructor TCetonVideoStream.Create(const aClient: TCetonClient;
-  const aChannel: Integer);
+  const aTuner: Integer; const aChannel: Integer);
 begin
   fClient := aClient;
 
   fBuffer := TRingBuffer.Create;
 
-  fClient.StartStream(aChannel, fViewer);
+  fClient.StartStream(aTuner, aChannel, fViewer);
 end;
 
 function TCetonVideoStream.Read(var Buffer; Count: Longint): Longint;
@@ -1302,80 +1046,6 @@ begin
   Visible := aItem.Visible;
 end;
 
-{ TRingBuffer }
-
-procedure TRingBuffer.Write(var Buffer; Count: Longint);
-var
-  lIndex: Integer;
-  lToWrite: Integer;
-begin
-  if Length(fData) < fSize+Count then
-    Resize(fSize+Count);
-
-  lIndex := (fStartIndex+fSize) mod Length(fData);
-  lToWrite := Min(Count, Length(fData)-lIndex);
-  if lToWrite > 0 then
-    Move(Buffer, fData[lIndex], lToWrite);
-  Inc(fSize, lToWrite);
-
-  if lToWrite < Count then
-    Write(PByteArray(@Buffer)[lToWrite], Count-lToWrite);
-end;
-
-function TRingBuffer.Read(var Buffer; Count: Longint): Longint;
-var
-  lToRead: Integer;
-begin
-  lToRead := Min(Count, Min(fSize, Length(fData)-fStartIndex));
-  if lToRead > 0 then
-    Move(fData[fStartIndex], Buffer, lToRead);
-  fStartIndex := (fStartIndex + lToRead) mod Length(fData);
-  Dec(fSize, lToRead);
-  Result := lToRead;
-
-  if (lToRead < Count) and (fSize > 0) then
-  begin
-    Inc(Result, Read(PByteArray(@Buffer)[lToRead], Count-lToRead));
-  end;
-end;
-
-procedure TRingBuffer.Resize(const aSize: Integer);
-var
-  lData: TBytes;
-begin
-  if (fStartIndex > 0) and (aSize > 0) then
-  begin
-    SetLength(lData, aSize);
-    fSize := Read(lData[0], aSize);
-    fData := lData;
-    fStartIndex := 0;
-  end
-  else
-  begin
-    SetLength(fData, aSize);
-    fSize := Min(fSize, aSize);
-  end;
-end;
-
-function TRingBuffer.Seek(const Offset: Integer; Origin: TSeekOrigin): Integer;
-var
-  lToRead: Integer;
-begin
-  if Origin = TSeekOrigin.soCurrent then
-  begin
-    lToRead := Min(Offset, Length(fData)-fStartIndex);
-    fStartIndex := (fStartIndex + lToRead) mod Length(fData);
-    Dec(fSize, lToRead);
-
-    if (lToRead < Offset) and (fSize > 0) then
-    begin
-      Seek(Offset-lToRead, soCurrent);
-    end;
-  end;
-
-  Result := -1;
-end;
-
 { TCetonConfig }
 
 constructor TCetonConfig.Create;
@@ -1390,85 +1060,20 @@ begin
   inherited;
 end;
 
-function TCetonConfig.ToJSON: String;
+procedure TCetonConfig.AssignTo(Dest: TPersistent);
 var
-  m: TJSONMarshal;
+  lDest: TCetonConfig;
 begin
-  m := TJSONMarshal.Create(TJSONConverter.Create);
-  try
-    m.RegisterConverter(TChannelMap, 'fList',
-      function(Data: TObject; Field: String): TListOfObjects
-      var
-        obj: TChannelMapItem;
-        I: Integer;
-      begin
-        SetLength(Result, TChannelMap(Data).fList.Count);
-        I := Low(Result);
-        for obj in TChannelMap(Data).fList do
-        begin
-          Result[I] := obj;
-          Inc(I);
-        end;
-      end);
+  if Dest is TCetonConfig then
+  begin
+    lDest := TCetonConfig(Dest);
 
-    Result := m.Marshal(Self).ToString;
-  finally
-    m.Free;
-  end;
-end;
-
-class function TCetonConfig.FromJSON(const aJSON: String): TCetonConfig;
-var
-  m: TJSONUnMarshal;
-  lR: TReverterEvent;
-begin
-  Result := nil;
-  try
-    m := TJSONUnMarshal.Create;
-    try
-      lR := TReverterEvent.Create(TChannelMapItem, 'list');
-      lR.ObjectsReverter :=
-        procedure(Data: TObject; Field: string; Args: TListOfObjects)
-        var
-          i: Integer;
-        begin
-          for i := Low(Args) to High(Args) do
-          begin
-            TChannelMap(Data).fList.Add(TChannelMapItem(Args[i]));
-          end;
-        end;
-      m.RegisterReverter(TChannelMap, 'list', lR);
-
-      Result := m.CreateObject(TCetonConfig, TJSONObject(TJSONObject.ParseJSONValue(aJSON))) as TCetonConfig;
-    finally
-      m.Free;
-    end;
-  except
-    FreeAndNil(Result);
-    Result := TCetonConfig.Create;
-  end;
-end;
-
-{ TRTPHeader }
-
-function TRTPHeader.GetPayloadType: UInt8;
-begin
-  Result := RawPayload and $7F;
-end;
-
-function TRTPHeader.GetSequenceNumber: UInt16;
-begin
-  Result := Swap16(RawSequence);
-end;
-
-class function TRTPHeader.Swap16(const aValue: UInt16): UInt16;
-begin
-  Result := Swap(aValue);
-end;
-
-function TRTPHeader.GetVersion: UInt8;
-begin
-  Result := RawVersion shr 6;
+    lDest.fChannelMap.Assign(fChannelMap);
+    lDest.fTunerAddress := fTunerAddress;
+    lDest.fListenIP := fListenIP;
+  end
+  else
+    inherited;
 end;
 
 { TCetonViewer }

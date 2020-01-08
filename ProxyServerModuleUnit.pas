@@ -1,4 +1,4 @@
-unit ProxyServer;
+unit ProxyServerModuleUnit;
 
 interface
 
@@ -19,7 +19,9 @@ uses
   IdSocketHandle,
   IdGlobal,
 
-  ProxyService,
+  ProxyServiceModuleUnit,
+
+  Ceton,
   HDHR;
 
 type
@@ -37,6 +39,8 @@ type
     { Private declarations }
     fServer: TIdHTTPWebBrokerBridge;
     fDiscoveryServer: TIdUDPServer;
+
+    procedure GetConfig(const aConfig: TServiceConfig);
 
     procedure DiscoveryUDPRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
 
@@ -88,7 +92,6 @@ begin
   fServer.OnException := ServerException;
 
   fDiscoveryServer := TIdUDPServer.Create(Self);
-  fDiscoveryServer.DefaultPort := HDHR_DISCOVERY_PORT;
   fDiscoveryServer.ThreadedEvent := False;
   fDiscoveryServer.OnUDPRead := DiscoveryUDPRead;
 end;
@@ -104,21 +107,39 @@ begin
 end;
 
 procedure TProxyServerModule.StartServer;
+var
+  lConfig: TServiceConfig;
 begin
   if not fServer.Active then
   begin
-    fServer.Bindings.Clear;
-    with fServer.Bindings.Add do
-    begin
-      Port := 80;
-    end;
-    with fServer.Bindings.Add do
-    begin
-      Port := HDHR_HTTP_PORT;
-    end;
-    fServer.Active := True;
+    lConfig := TServiceConfig.Create;
+    try
+      lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
+      GetConfig(lConfig);
 
-    fDiscoveryServer.Active := True;
+      fServer.Bindings.Clear;
+      with fServer.Bindings.Add do
+      begin
+        IP := lConfig.Ceton.ListenIP;
+        Port := 80;
+      end;
+      with fServer.Bindings.Add do
+      begin
+        IP := lConfig.Ceton.ListenIP;
+        Port := HDHR_HTTP_PORT;
+      end;
+      fServer.Active := True;
+
+      fDiscoveryServer.Bindings.Clear;
+      with fDiscoveryServer.Bindings.Add do
+      begin
+        IP := lConfig.Ceton.ListenIP;
+        Port := HDHR_DISCOVERY_PORT;
+      end;
+      fDiscoveryServer.Active := True;
+    finally
+      lConfig.Free;
+    end;
   end;
 end;
 
@@ -141,13 +162,61 @@ procedure TProxyServerModule.DiscoveryUDPRead(AThread: TIdUDPListenerThread;
   const AData: TIdBytes; ABinding: TIdSocketHandle);
 var
   lHex: AnsiString;
+  lPacket: TPacket;
+  lDiscovery: TDiscoveryData;
+  lConfig: TServiceConfig;
+  lBytes: TBytes;
 begin
   if Length(AData) > 0 then
   begin
     SetLength(lHex, Length(AData)*2);
     BinToHex(AData, PAnsiChar(lHex), Length(lHex));
-    Log.D('Received discovery data: %s', [lHex]);
+    Log.D('Received control data: %s', [lHex]);
+
+    if TPacket.TryFromBytes(TBytes(AData), lPacket) then
+    begin
+      if lPacket.IsValid then
+      begin
+        case lPacket._Type of
+          HDHOMERUN_TYPE_DISCOVER_REQ: begin
+            lDiscovery := lPacket.ToDiscovery;
+            Log.D('Received discovery request: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
+
+            if (lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_TUNER) and (lDiscovery.DeviceID = HDHOMERUN_DEVICE_ID_WILDCARD) then
+            begin
+              lConfig := TServiceConfig.Create;
+              try
+                lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
+                GetConfig(lConfig);
+
+                lDiscovery.DeviceID := lConfig.DeviceID;
+                lDiscovery.TunerCount := 6;
+                lDiscovery.BaseURL := Format('http://%s:80', [lConfig.Ceton.ListenIP]);
+                lDiscovery.LineupURL := Format('%s/lineup.json', [lDiscovery.BaseURL]);
+              finally
+                lConfig.Free;
+              end;
+
+              lBytes := TPacket.FromDiscovery(False, lDiscovery).ToBytes;
+              SetLength(lHex, Length(lBytes)*2);
+              BinToHex(lBytes, PAnsiChar(lHex), Length(lHex));
+              Log.D('Sending discovery response: Device ID: %s, Base URL: %s, %s', [IntToHex(lDiscovery.DeviceID, 8), lDiscovery.BaseURL, lHex]);
+
+              if TPacket.TryFromBytes(lBytes, lPacket) then
+                Log.D('Response parse successful');
+
+              AThread.Server.SendBuffer(ABinding.PeerIP, ABinding.PeerPort, TIdBytes(lBytes));
+            end;
+          end;
+        end;
+      end;
+    end;
   end;
+end;
+
+procedure TProxyServerModule.GetConfig(const aConfig: TServiceConfig);
+begin
+  ProxyServiceModule.GetConfig(aConfig);
 end;
 
 end.

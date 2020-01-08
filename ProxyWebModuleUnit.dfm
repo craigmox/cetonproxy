@@ -1,14 +1,6 @@
-object WebModule1: TWebModule1
+object ProxyWebModule: TProxyWebModule
   OldCreateOrder = False
   Actions = <
-    item
-      Name = 'ReverseStringAction'
-      PathInfo = '/ReverseString'
-    end
-    item
-      Name = 'ServerFunctionInvokerAction'
-      PathInfo = '/ServerFunctionInvoker'
-    end
     item
       Default = True
       Name = 'DefaultAction'
@@ -18,17 +10,27 @@ object WebModule1: TWebModule1
     item
       Name = 'DiscoverAction'
       PathInfo = '/discover.json'
-      OnAction = WebModule1DiscoverActionAction
+      OnAction = ProxyWebModuleDiscoverActionAction
     end
     item
-      Name = 'LineupAction'
+      Name = 'LineupJSONAction'
       PathInfo = '/lineup.json'
-      OnAction = WebModule1LineupActionAction
+      OnAction = ProxyWebModuleLineupJSONActionAction
     end
     item
       Name = 'AutoAction'
       PathInfo = '/auto/v*'
-      OnAction = WebModule1AutoActionAction
+      OnAction = ProxyWebModuleAutoActionAction
+    end
+    item
+      Name = 'LineupXMLAction'
+      PathInfo = '/lineup.xml'
+      OnAction = ProxyWebModuleLineupXMLActionAction
+    end
+    item
+      Name = 'TunerAction'
+      PathInfo = '/tuner[0-99]/v*'
+      OnAction = ProxyWebModuleTunerActionAction
     end>
   Height = 333
   Width = 414

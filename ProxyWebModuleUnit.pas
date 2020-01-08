@@ -1,4 +1,4 @@
-unit WebModuleUnit1;
+unit ProxyWebModuleUnit;
 
 interface
 
@@ -7,11 +7,12 @@ uses
   FMX.Types,
   IdHTTPWebBrokerBridge,
   IDGlobal,
-  ProxyService,
+  ProxyServiceModuleUnit,
   Winapi.ShellApi,
   Web.WebReq,
 
-  hdhr, ceton,
+  HDHR,
+  Ceton,
 
   REST.JSON;
 
@@ -25,26 +26,36 @@ type
     function Connected: Boolean;
   end;
 
-  TWebModule1 = class(TWebModule)
+  TProxyWebModule = class(TWebModule)
     procedure WebModuleDefaultAction(Sender: TObject;
       Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
-    procedure WebModule1DiscoverActionAction(Sender: TObject;
+    procedure ProxyWebModuleDiscoverActionAction(Sender: TObject;
       Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
-    procedure WebModule1LineupActionAction(Sender: TObject;
+    procedure ProxyWebModuleLineupJSONActionAction(Sender: TObject;
       Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
-    procedure WebModule1AutoActionAction(Sender: TObject; Request: TWebRequest;
+    procedure ProxyWebModuleAutoActionAction(Sender: TObject; Request: TWebRequest;
       Response: TWebResponse; var Handled: Boolean);
+    procedure ProxyWebModuleLineupXMLActionAction(Sender: TObject;
+      Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
+    procedure ProxyWebModuleTunerActionAction(Sender: TObject;
+      Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
   private
     { Private declarations }
     procedure HandleException;
 
-    function Client: TCetonClient;
+    function GetClient: TCetonClient;
+
+    procedure GetConfig(const aConfig: TServiceConfig);
+    procedure GetLineup(const aLineup: TLineup);
+    procedure SendTuneResponse(const aTuner, aChannel: Integer; const Response: TWebResponse);
+
+    property Client: TCetonClient read GetClient;
   public
     { Public declarations }
   end;
 
 var
-  WebModuleClass: TComponentClass = TWebModule1;
+  WebModuleClass: TComponentClass = TProxyWebModule;
 
 implementation
 
@@ -89,7 +100,7 @@ end;
 
 { TWebModule1 }
 
-procedure TWebModule1.WebModuleDefaultAction(Sender: TObject;
+procedure TProxyWebModule.WebModuleDefaultAction(Sender: TObject;
   Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
 begin
   Log.d('Received unknown request '+Request.PathInfo);
@@ -100,15 +111,29 @@ begin
     Response.SendRedirect(Request.InternalScriptName + '/');}
 end;
 
-procedure TWebModule1.WebModule1DiscoverActionAction(Sender: TObject;
+procedure TProxyWebModule.ProxyWebModuleDiscoverActionAction(Sender: TObject;
   Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
 var
   lResponse: TDiscoverResponse;
+  lConfig: TServiceConfig;
 begin
   Handled := True;
   try
     lResponse := TDiscoverResponse.Create;
     try
+      lConfig := TServiceConfig.Create;
+      try
+        lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
+        GetConfig(lConfig);
+
+        lResponse.BaseURL := Format('http://%s:80', [Client.ListenIP]);
+        lResponse.LineupURL := Format('%s/lineup.json', [lResponse.BaseURL]);
+        lResponse.DeviceID := IntToHex(lConfig.DeviceID);
+      finally
+        lConfig.Free;
+      end;
+
+      Response.ContentType := 'application/json';
       Response.Content := TJson.ObjectToJsonString(lResponse);
     finally
       lResponse.Free;
@@ -120,92 +145,89 @@ begin
   end;
 end;
 
-procedure TWebModule1.WebModule1LineupActionAction(Sender: TObject;
+procedure TProxyWebModule.ProxyWebModuleLineupJSONActionAction(Sender: TObject;
   Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
 var
-  lChannelMap: TChannelMap;
-  lChannelMapItem: TChannelMapItem;
   lLineup: TLineup;
-  lTunerAddress: String;
-  i: Integer;
 begin
   Handled := True;
   try
-    Log.d('Received lineup request');
+    Log.d('Received lineup.json request');
 
-    if Client.ChannelMapExpired(3) then
-      Client.RequestChannelMap;
-
-    lChannelMap := TChannelMap.Create;
+    lLineup := TLineup.Create;
     try
-      Client.GetChannelMap(lChannelMap);
+      GetLineup(lLineup);
 
-      lTunerAddress := Client.TunerAddress;
-
-      lLineup := TLineup.Create;
-      try
-        for i := 0 to lChannelMap.Count-1 do
-        begin
-          lChannelMapItem := lChannelMap[i];
-          if lChannelMapItem.Visible then
-            lLineup.Add(IntToStr(lChannelMapItem.Channel), lChannelMapItem.Name, Format('http://%s/auto/v%d', [lTunerAddress, lChannelMapItem.Channel]));
-        end;
-
-        Response.Content := lLineup.ToJSON;
-      finally
-        lLineup.Free;
-      end;
+      Response.ContentType := 'application/json';
+      Response.Content := lLineup.ToJSON;
     finally
-      lChannelMap.Free;
+      lLineup.Free;
     end;
   except
     HandleException;
   end;
 end;
 
-procedure TWebModule1.WebModule1AutoActionAction(Sender: TObject;
+procedure TProxyWebModule.SendTuneResponse(const aTuner, aChannel: Integer; const Response: TWebResponse);
+var
+  lStream: TCetonVideoStream;
+begin
+  // TODO: Grab content type from video stream
+  Response.ContentType := 'video/mpeg';
+  TIdHTTPAppChunkedResponse(Response).SendChunkedHeader;
+
+  repeat
+    lStream := TCetonVideoStream.Create(Client, aTuner, aChannel);
+    try
+      try
+        TIdHTTPAppChunkedResponse(Response).SendChunkedStream(lStream);
+      except
+        on e: ECetonTunerError do
+          // Loop around to try to start stream again
+        else
+          raise;
+      end;
+    finally
+      lStream.Free;
+    end;
+  until not TIdHTTPAppChunkedResponse(Response).Connected;
+end;
+
+procedure TProxyWebModule.ProxyWebModuleAutoActionAction(Sender: TObject;
   Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
 var
+  lParts: TArray<String>;
   lChannel: Integer;
-  lStream: TCetonVideoStream;
 begin
   Handled := True;
   try
     Log.d('Received tune request '+Request.PathInfo);
 
-    lChannel := StrToIntDef(Request.PathInfo.Substring(7),0);
-    if lChannel > 0 then
+    lParts := Request.PathInfo.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+    if (Length(lParts) >= 2) and (lParts[1].StartsWith('v',True)) then
     begin
-      Response.ContentType := 'video/mpeg';
-      TIdHTTPAppChunkedResponse(Response).SendChunkedHeader;
-
-      repeat
-        lStream := TCetonVideoStream.Create(Client, lChannel);
-        try
-          try
-            TIdHTTPAppChunkedResponse(Response).SendChunkedStream(lStream);
-          except
-            on e: ECetonTunerError do
-              // Loop around to try to start stream again
-            else
-              raise;
-          end;
-        finally
-          lStream.Free;
-        end;
-      until not TIdHTTPAppChunkedResponse(Response).Connected;
+      lChannel := StrToIntDef(lParts[1].Substring(1),0);
+      if lChannel > 0 then
+      begin
+        SendTuneResponse(-1, lChannel, Response);
+      end;
     end;
   except
     HandleException;
   end;
 end;
 
-function TWebModule1.Client: TCetonClient;
+function TProxyWebModule.GetClient: TCetonClient;
 begin
   Result := ProxyServiceModule.Client;
 end;
 
-procedure TWebModule1.HandleException;
+procedure TProxyWebModule.GetConfig(const aConfig: TServiceConfig);
+begin
+  ProxyServiceModule.GetConfig(aConfig);
+end;
+
+procedure TProxyWebModule.HandleException;
 begin
   // Send the response ourselves in an exception handler that eats all exceptions to
   // prevent the default handler from doing it and showing an error message box
@@ -218,6 +240,85 @@ begin
     except
       // Ignore
     end;
+  end;
+end;
+
+procedure TProxyWebModule.ProxyWebModuleLineupXMLActionAction(Sender: TObject;
+  Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
+var
+  lLineup: TLineup;
+begin
+  Handled := True;
+  try
+    Log.d('Received lineup.xml request');
+
+    lLineup := TLineup.Create;
+    try
+      GetLineup(lLineup);
+
+      Response.ContentType := 'application/xml';
+      Response.Content := lLineup.ToXML;
+    finally
+      lLineup.Free;
+    end;
+  except
+    HandleException;
+  end;
+end;
+
+procedure TProxyWebModule.GetLineup(const aLineup: TLineup);
+var
+  lTunerAddress: String;
+  lChannelMapItem: TChannelMapItem;
+  i: Integer;
+  lConfig: TServiceConfig;
+begin
+  lConfig := TServiceConfig.Create;
+  try
+    lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
+    GetConfig(lConfig);
+
+    if lConfig.Ceton.ChannelMap.Expired(3) then
+      Client.RequestChannelMap;
+
+    lConfig.Ceton.ChannelMap.Exclude := [];
+    GetConfig(lConfig);
+
+    lTunerAddress := lConfig.Ceton.TunerAddress;
+
+    for i := 0 to lConfig.Ceton.ChannelMap.Count-1 do
+    begin
+      lChannelMapItem := lConfig.Ceton.ChannelMap[i];
+      if lChannelMapItem.Visible then
+        aLineup.Add(IntToStr(lChannelMapItem.Channel), lChannelMapItem.Name, Format('http://%s/auto/v%d', [lTunerAddress, lChannelMapItem.Channel]));
+    end;
+  finally
+    lConfig.Free;
+  end;
+end;
+
+procedure TProxyWebModule.ProxyWebModuleTunerActionAction(Sender: TObject;
+  Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
+var
+  lTuner, lChannel: Integer;
+  lParts: TArray<String>;
+begin
+  Handled := True;
+  try
+    Log.d('Received tune request '+Request.PathInfo);
+
+    lParts := Request.PathInfo.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+    if (Length(lParts) >= 2) and (lParts[0].StartsWith('tuner',True)) and (lParts[1].StartsWith('v',True)) then
+    begin
+      lTuner := StrToIntDef(lParts[0].Substring(5),-1);
+      lChannel := StrToIntDef(lParts[1].Substring(1),0);
+      if (lTuner > -1) and (lChannel > 0) then
+      begin
+        SendTuneResponse(lTuner, lChannel, Response);
+      end;
+    end;
+  except
+    HandleException;
   end;
 end;
 
