@@ -191,8 +191,8 @@ begin
 
                 lDiscovery.DeviceID := lConfig.DeviceID;
                 lDiscovery.TunerCount := 6;
-                lDiscovery.BaseURL := Format('http://%s:80', [lConfig.Ceton.ListenIP]);
-                lDiscovery.LineupURL := Format('%s/lineup.json', [lDiscovery.BaseURL]);
+                lDiscovery.BaseURL := AnsiString(Format('http://%s:80', [lConfig.Ceton.ListenIP]));
+                lDiscovery.LineupURL := AnsiString(Format('%s/lineup.json', [lDiscovery.BaseURL]));
               finally
                 lConfig.Free;
               end;
@@ -201,9 +201,6 @@ begin
               SetLength(lHex, Length(lBytes)*2);
               BinToHex(lBytes, PAnsiChar(lHex), Length(lHex));
               Log.D('Sending discovery response: Device ID: %s, Base URL: %s, %s', [IntToHex(lDiscovery.DeviceID, 8), lDiscovery.BaseURL, lHex]);
-
-              if TPacket.TryFromBytes(lBytes, lPacket) then
-                Log.D('Response parse successful');
 
               AThread.Server.SendBuffer(ABinding.PeerIP, ABinding.PeerPort, TIdBytes(lBytes));
             end;

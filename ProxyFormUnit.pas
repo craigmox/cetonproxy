@@ -48,18 +48,13 @@ type
   end;
 
   TMainForm = class(TForm)
-    Button2: TButton;
-    NumberBox1: TNumberBox;
-    Button3: TButton;
-    Button4: TButton;
-    Edit1: TEdit;
     lbChannels: TListBox;
     btnEditChannels: TButton;
     Splitter1: TSplitter;
     gbGroup: TGroupBox;
     StyleBook1: TStyleBook;
-    GroupBox1: TGroupBox;
-    GroupBox2: TGroupBox;
+    gbSettings: TGroupBox;
+    gbDebug: TGroupBox;
     VertScrollBox1: TVertScrollBox;
     eCetonTunerAddress: TEdit;
     Label1: TLabel;
@@ -68,9 +63,6 @@ type
     eListenIP: TEdit;
     btnRefreshChannels: TButton;
     procedure FormCreate(Sender: TObject);
-    procedure Button2Click(Sender: TObject);
-    procedure Button3Click(Sender: TObject);
-    procedure Button4Click(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
     procedure btnEditChannelsClick(Sender: TObject);
@@ -82,7 +74,6 @@ type
   private
     { Private declarations }
     fConfig: TServiceConfig;
-    fViewer: TCetonViewer;
 
     fInterfaceUpdateCount: Integer;
     fSave: Boolean;
@@ -176,61 +167,13 @@ end;
 procedure TMainForm.FormCreate(Sender: TObject);
 begin
   fConfig := TServiceConfig.Create;
-  fViewer := TCetonViewer.Invalid;
 
   ProxyServerModule.StartServer;
-end;
-
-procedure TMainForm.Button2Click(Sender: TObject);
-begin
-  if fViewer.IsValid then
-  begin
-    Client.StopStream(fViewer);
-  end;
-
-  Client.StartStream(-1, Round(NumberBox1.Value), fViewer);
 end;
 
 function TMainForm.GetClient: TCetonClient;
 begin
   Result := ProxyServiceModule.Client;
-end;
-
-procedure TMainForm.Button3Click(Sender: TObject);
-begin
-  if fViewer.IsValid then
-  begin
-    Client.StopStream(fViewer);
-  end;
-end;
-
-procedure TMainForm.Button4Click(Sender: TObject);
-var
-  lStopWatch: TStopWatch;
-  lFS: TFileStream;
-  lBuffer: TRingBuffer;
-begin
-  lBuffer := TRingBuffer.Create;
-  try
-    lStopWatch := TStopwatch.StartNew;
-    while lStopWatch.ElapsedMilliseconds <= 10 * 1000 do
-    begin
-      Client.ReadStream(fViewer, lBuffer, 32000, 5000);
-
-      Log.D('Buffer size %d', [lBuffer.Size]);
-      lBuffer.Seek(32000, soCurrent);
-
- {
-      lFS := TFile.Open(edit1.Text, TFileMode.fmAppend);
-      try
-        lFS.WriteData(FPacket.Data, FPacket.Size);
-      finally
-        lFS.Free;
-      end;}
-    end;
-  finally
-    lBuffer.Free;
-  end;
 end;
 
 procedure TMainForm.FillChannels;

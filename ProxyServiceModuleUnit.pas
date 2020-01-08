@@ -68,7 +68,7 @@ implementation
 
 procedure TServiceConfig.CreateDeviceID;
 begin
-  fDeviceID := UInt32(Random($FFFFFFFF)+1);
+  fDeviceID := UInt32(Random(Integer($FFFFFFFF))+1);
 end;
 
 function TServiceConfig.ToJSON: String;

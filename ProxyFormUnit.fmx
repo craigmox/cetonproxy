@@ -1,10 +1,11 @@
 object MainForm: TMainForm
   Left = 0
   Top = 0
-  Caption = 'Form1'
-  ClientHeight = 569
+  Caption = 'Ceton HDHomeRun Proxy'
+  ClientHeight = 277
   ClientWidth = 450
   Fill.Kind = Solid
+  Position = ScreenCenter
   StyleBook = StyleBook1
   FormFactor.Width = 320
   FormFactor.Height = 480
@@ -16,11 +17,11 @@ object MainForm: TMainForm
   object VertScrollBox1: TVertScrollBox
     Align = Client
     Size.Width = 450.000000000000000000
-    Size.Height = 569.000000000000000000
+    Size.Height = 277.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
     Viewport.Width = 450.000000000000000000
-    Viewport.Height = 569.000000000000000000
+    Viewport.Height = 277.000000000000000000
     object gbGroup: TGroupBox
       Align = Top
       Padding.Left = 15.000000000000000000
@@ -73,7 +74,7 @@ object MainForm: TMainForm
         OnClick = btnRefreshChannelsClick
       end
     end
-    object GroupBox1: TGroupBox
+    object gbSettings: TGroupBox
       Align = Top
       Size.Width = 450.000000000000000000
       Size.Height = 84.000000000000000000
@@ -114,7 +115,7 @@ object MainForm: TMainForm
         OnChangeTracking = eListenIPChangeTracking
       end
     end
-    object GroupBox2: TGroupBox
+    object gbDebug: TGroupBox
       Align = Top
       Position.Y = 253.000000000000000000
       Size.Width = 450.000000000000000000
@@ -122,57 +123,8 @@ object MainForm: TMainForm
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
       Text = 'Debug'
+      Visible = False
       TabOrder = 2
-      object Button2: TButton
-        Position.X = 15.000000000000000000
-        Position.Y = 24.000000000000000000
-        Size.Width = 113.000000000000000000
-        Size.Height = 22.000000000000000000
-        Size.PlatformDefault = False
-        TabOrder = 0
-        Text = 'Start Stream'
-        OnClick = Button2Click
-      end
-      object Button3: TButton
-        Position.X = 247.000000000000000000
-        Position.Y = 24.000000000000000000
-        Size.Width = 105.000000000000000000
-        Size.Height = 22.000000000000000000
-        Size.PlatformDefault = False
-        TabOrder = 1
-        Text = 'Stop Stream'
-        OnClick = Button3Click
-      end
-      object Button4: TButton
-        Position.X = 15.000000000000000000
-        Position.Y = 56.000000000000000000
-        Size.Width = 113.000000000000000000
-        Size.Height = 22.000000000000000000
-        Size.PlatformDefault = False
-        TabOrder = 2
-        Text = 'Save to File'
-        OnClick = Button4Click
-      end
-      object Edit1: TEdit
-        Touch.InteractiveGestures = [LongTap, DoubleTap]
-        TabOrder = 3
-        Text = 'd:\temp\temp.ts'
-        Position.X = 135.000000000000000000
-        Position.Y = 56.000000000000000000
-        Size.Width = 217.000000000000000000
-        Size.Height = 22.000000000000000000
-        Size.PlatformDefault = False
-      end
-      object NumberBox1: TNumberBox
-        Touch.InteractiveGestures = [LongTap, DoubleTap]
-        TabOrder = 4
-        Cursor = crIBeam
-        Min = 1.000000000000000000
-        Max = 10000.000000000000000000
-        Value = 1011.000000000000000000
-        Position.X = 135.000000000000000000
-        Position.Y = 24.000000000000000000
-      end
     end
     object Splitter1: TSplitter
       Align = Top
