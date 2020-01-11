@@ -34,7 +34,8 @@ uses
   SocketUtils,
 
   ProxyServiceModuleUnit,
-  ProxyServerModuleUnit;
+  ProxyServerModuleUnit, FMX.ListView.Types, FMX.ListView.Appearances,
+  FMX.ListView.Adapters.Base, FMX.ListView;
 
 type
   TChannelListBoxItem = class(TListBoxItem)
@@ -54,7 +55,7 @@ type
     gbGroup: TGroupBox;
     StyleBook1: TStyleBook;
     gbSettings: TGroupBox;
-    gbDebug: TGroupBox;
+    gbStats: TGroupBox;
     VertScrollBox1: TVertScrollBox;
     eCetonTunerAddress: TEdit;
     Label1: TLabel;
@@ -62,6 +63,8 @@ type
     Label2: TLabel;
     eListenIP: TEdit;
     btnRefreshChannels: TButton;
+    lbStats: TListView;
+    Splitter2: TSplitter;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
@@ -89,6 +92,7 @@ type
 
     procedure UpdateInterface;
     procedure FillChannels;
+    procedure FillTunerStatistics;
 
     property Client: TCetonClient read GetClient;
   public
@@ -302,6 +306,8 @@ begin
     fSave := False;
     SetConfig;
   end;
+
+  FillTunerStatistics;
 end;
 
 procedure TMainForm.FormShow(Sender: TObject);
@@ -336,6 +342,23 @@ begin
   ProxyServiceModule.GetConfig(fConfig);
 
   FillChannels;
+end;
+
+procedure TMainForm.FillTunerStatistics;
+var
+  lStatsArray: TTunerStatsArray;
+  i: Integer;
+begin
+  lStatsArray := Client.GetTunerStats;
+  while lbStats.Items.Count < Length(lStatsArray) do
+    lbStats.Items.Add;
+  while lbStats.Items.Count > Length(lStatsArray) do
+    lbStats.Items.Delete(lbStats.Items.Count-1);
+
+  for i := 0 to High(lStatsArray) do
+  begin
+    lbStats.Items[i].Text := Format('%d. Channel: %d, Received: %d, Read: %d, Wait: %d', [i+1, lStatsArray[i].Channel, lStatsArray[i].PacketsReceived, lStatsArray[i].PacketsRead[0], lStatsArray[i].ReaderWait[0]]);
+  end;
 end;
 
 end.

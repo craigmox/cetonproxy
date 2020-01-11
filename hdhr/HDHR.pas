@@ -418,7 +418,7 @@ var
   lBytes: TBytes;
 begin
   lBytes := ToBytes;
-  if Length(lBytes) > 0 then
+  if Length(lBytes) > 4 then
     Result := UInt32(crc32(0, @lBytes[0], Length(lBytes)-4))
   else
     Result := 0;
@@ -532,7 +532,7 @@ begin
     while lPos < Length(fData) do
     begin
       if not TTag.TryFromBytes(fData, lPos, lTag) then
-        Exit;
+        Exit(nil);
       lList.Add(lTag);
     end;
     Result := lList.ToArray;

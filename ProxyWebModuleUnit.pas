@@ -182,7 +182,7 @@ begin
       try
         TIdHTTPAppChunkedResponse(Response).SendChunkedStream(lStream);
       except
-        on e: ECetonTunerError do
+        on e: ECetonError do
           // Loop around to try to start stream again
         else
           raise;

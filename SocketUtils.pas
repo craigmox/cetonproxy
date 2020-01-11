@@ -75,8 +75,28 @@ type
     ReaderIndex: Integer;
   end;
 
-  TRTPVideoSink = class
+  IVideoStats = interface
+    procedure PacketReceived(const aPacketIndex: Integer; const aPacket: TVideoPacket);
+    procedure PacketRead(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
+    procedure ReaderWait(const aReaderIndex: Integer; const aPacketIndex: Integer);
+  end;
+
+  IRTPVideoSink = interface
+    ['{01F773F3-671F-4562-BB68-ECF69D33DEF7}']
+    function GetPort: Integer;
+
+    procedure Read(var aReader: TVideoReader; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
+    function WaitForSignal(const aReader: TVideoReader; const aTimeoutMs: Integer): Boolean;
+
+    procedure RegisterReader(out aReader: TVideoReader);
+    procedure UnregisterReader(var aReader: TVideoReader);
+
+    property Port: Integer read GetPort;
+  end;
+
+  TRTPVideoSink = class(TInterfacedObject, IRTPVideoSink)
   private
+    fStats: IVideoStats;
     fServer: TIdUDPServer;
     fWriteEvent: TEvent;
 
@@ -87,24 +107,24 @@ type
 
     fReaderPacketIndexes: TArray<Integer>;
 
-    function GetPort: Integer;
     procedure TimeoutError;
   protected
     procedure Lock;
     procedure Unlock;
 
     procedure UDPRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
-  public
-    constructor Create(const aPacketSize, aPacketCount: Integer);
-    destructor Destroy; override;
+  protected
+    // IRTPVideoSink
+    function GetPort: Integer;
 
     procedure Read(var aReader: TVideoReader; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
     function WaitForSignal(const aReader: TVideoReader; const aTimeoutMs: Integer): Boolean;
 
     procedure RegisterReader(out aReader: TVideoReader);
     procedure UnregisterReader(var aReader: TVideoReader);
-
-    property Port: Integer read GetPort;
+  public
+    constructor Create(const aPacketSize, aPacketCount: Integer; const aStats: IVideoStats);
+    destructor Destroy; override;
   end;
 
 function Swap16(const aValue: UInt16): UInt16;
@@ -297,10 +317,12 @@ end;
 
 { TRTPVideoSink }
 
-constructor TRTPVideoSink.Create(const aPacketSize, aPacketCount: Integer);
+constructor TRTPVideoSink.Create(const aPacketSize, aPacketCount: Integer; const aStats: IVideoStats);
 var
   i: Integer;
 begin
+  fStats := aStats;
+
   fServer := TIdUDPServer.Create(nil);
   fServer.DefaultPort := 0;
   fServer.ThreadedEvent := True;
@@ -371,6 +393,9 @@ begin
     Move(AData[lWritten], lPacket.Data[0], lToWrite);
     lPacket.Size := lToWrite;
 
+    if Assigned(fStats) then
+      fStats.PacketReceived(fWritePacketIndex, lPacket^);
+
     // Decide where we'll write the next packet to come in
     fWritePacketIndex := (fWritePacketIndex + 1) mod Length(fPackets);
 
@@ -380,10 +405,7 @@ begin
     for i := 0 to High(fReaderPacketIndexes) do
     begin
       if fReaderPacketIndexes[i] = fWritePacketIndex then
-      begin
         fReaderPacketIndexes[i] := (fReaderPacketIndexes[i] + 1) mod Length(fPackets);
-        Break;
-      end;
     end;
 
     fWriteEvent.SetEvent;
@@ -410,12 +432,14 @@ end;
 procedure TRTPVideoSink.Read(var aReader: TVideoReader; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
 var
   lPacket: PVideoPacket;
+  lToRead: Integer;
 begin
   // Attempt to read packets until the size of aBuffer reaches aCount
+  lToRead := aCount;
   repeat
     Lock;
     try
-      while aBuffer.Size < aCount do
+      while lToRead > 0 do
       begin
         lPacket := @fPackets[fReaderPacketIndexes[aReader.ReaderIndex]];
         // Do not advance into a packet index that the writer is writing to next
@@ -431,13 +455,22 @@ begin
           if aReader.Packet.Size > 0 then
             aBuffer.Write(aReader.Packet.Data[0], aReader.Packet.Size);
 
+          Dec(lToRead, aReader.Packet.Size);
+
+          if Assigned(fStats) then
+            fStats.PacketRead(aReader.ReaderIndex, fReaderPacketIndexes[aReader.ReaderIndex], lPacket^);
+
           fReaderPacketIndexes[aReader.ReaderIndex] := (fReaderPacketIndexes[aReader.ReaderIndex] + 1) mod Length(fPackets);
         end
         else
+        begin
+          if Assigned(fStats) then
+            fStats.ReaderWait(aReader.ReaderIndex, fReaderPacketIndexes[aReader.ReaderIndex]);
           Break;
+        end;
       end;
 
-      if aBuffer.Size >= aCount then
+      if lToRead <= 0 then
         Exit;
 
       fWriteEvent.ResetEvent;
@@ -482,8 +515,11 @@ procedure TRTPVideoSink.UnregisterReader(var aReader: TVideoReader);
 begin
   Lock;
   try
-    fReaderPacketIndexes[aReader.ReaderIndex] := -1;
-    aReader.ReaderIndex := -1;
+    if aReader.ReaderIndex > -1 then
+    begin
+      fReaderPacketIndexes[aReader.ReaderIndex] := -1;
+      aReader.ReaderIndex := -1;
+    end;
   finally
     Unlock;
   end;

@@ -3,6 +3,8 @@ unit ProxyServerModuleUnit;
 interface
 
 uses
+  FastMM4,
+
   System.SysUtils,
   System.Classes,
   Winapi.ActiveX,
@@ -170,7 +172,7 @@ begin
   if Length(AData) > 0 then
   begin
     SetLength(lHex, Length(AData)*2);
-    BinToHex(AData, PAnsiChar(lHex), Length(lHex));
+    BinToHex(AData, PAnsiChar(lHex), Length(AData));
     Log.D('Received control data: %s', [lHex]);
 
     if TPacket.TryFromBytes(TBytes(AData), lPacket) then
@@ -199,7 +201,7 @@ begin
 
               lBytes := TPacket.FromDiscovery(False, lDiscovery).ToBytes;
               SetLength(lHex, Length(lBytes)*2);
-              BinToHex(lBytes, PAnsiChar(lHex), Length(lHex));
+              BinToHex(lBytes, PAnsiChar(lHex), Length(lBytes));
               Log.D('Sending discovery response: Device ID: %s, Base URL: %s, %s', [IntToHex(lDiscovery.DeviceID, 8), lDiscovery.BaseURL, lHex]);
 
               AThread.Server.SendBuffer(ABinding.PeerIP, ABinding.PeerPort, TIdBytes(lBytes));

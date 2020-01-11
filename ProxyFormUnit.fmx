@@ -2,7 +2,7 @@ object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Ceton HDHomeRun Proxy'
-  ClientHeight = 277
+  ClientHeight = 729
   ClientWidth = 450
   Fill.Kind = Solid
   Position = ScreenCenter
@@ -17,11 +17,11 @@ object MainForm: TMainForm
   object VertScrollBox1: TVertScrollBox
     Align = Client
     Size.Width = 450.000000000000000000
-    Size.Height = 277.000000000000000000
+    Size.Height = 729.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
     Viewport.Width = 450.000000000000000000
-    Viewport.Height = 277.000000000000000000
+    Viewport.Height = 729.000000000000000000
     object gbGroup: TGroupBox
       Align = Top
       Padding.Left = 15.000000000000000000
@@ -115,22 +115,46 @@ object MainForm: TMainForm
         OnChangeTracking = eListenIPChangeTracking
       end
     end
-    object gbDebug: TGroupBox
+    object gbStats: TGroupBox
       Align = Top
+      Padding.Left = 15.000000000000000000
+      Padding.Top = 20.000000000000000000
+      Padding.Right = 10.000000000000000000
+      Padding.Bottom = 10.000000000000000000
       Position.Y = 253.000000000000000000
       Size.Width = 450.000000000000000000
-      Size.Height = 92.000000000000000000
+      Size.Height = 364.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
-      Text = 'Debug'
-      Visible = False
+      Text = 'Statistics'
       TabOrder = 2
+      object lbStats: TListView
+        ItemAppearanceClassName = 'TCustomizeItemObjects'
+        ItemEditAppearanceClassName = 'TCustomizeItemObjects'
+        HeaderAppearanceClassName = 'TListHeaderObjects'
+        FooterAppearanceClassName = 'TListHeaderObjects'
+        EditMode = True
+        Align = Client
+        Size.Width = 425.000000000000000000
+        Size.Height = 334.000000000000000000
+        Size.PlatformDefault = False
+        TabOrder = 1
+      end
     end
     object Splitter1: TSplitter
       Align = Top
       Cursor = crVSplit
       MinSize = 20.000000000000000000
       Position.Y = 245.000000000000000000
+      Size.Width = 450.000000000000000000
+      Size.Height = 8.000000000000000000
+      Size.PlatformDefault = False
+    end
+    object Splitter2: TSplitter
+      Align = Top
+      Cursor = crVSplit
+      MinSize = 20.000000000000000000
+      Position.Y = 617.000000000000000000
       Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False

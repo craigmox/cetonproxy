@@ -31,14 +31,12 @@ uses
   SocketUtils;
 
 type
-  ECetonClientError = class(Exception);
-  ECetonTunerError = class(Exception);
+  ECetonError = class(Exception);
 
   TChannelMap = class;
 
   TCetonConfig = class(TPersistent)
   private
-    [JSONOwned(False)]
     fChannelMap: TChannelMap;
     fTunerAddress: String;
     fListenIP: String;
@@ -90,6 +88,8 @@ type
     fExclude: TChannelMapSections;
     function GetCount: Integer;
     function GetItem(const aIndex: Integer): TChannelMapItem;
+    function ChannelMapItemComparison(const Left,
+      Right: TChannelMapItem): Integer;
   public
     constructor Create;
     destructor Destroy; override;
@@ -128,11 +128,12 @@ type
     property XML: Boolean read fXML write fXML;
   end;
 
-  TStartStreamRequest = class(TCustomRESTRequest)
+  TStartStopStreamRequest = class(TCustomRESTRequest)
   private
     fInstanceID: Integer;
     fPort: Integer;
     fIP: String;
+    fStart: Boolean;
   protected
     procedure DoBeforeExecute; override;
   public
@@ -141,17 +142,7 @@ type
     property InstanceID: Integer read fInstanceID write fInstanceID;
     property IP: String read fIP write fIP;
     property Port: Integer read fPort write fPort;
-  end;
-
-  TStopStreamRequest = class(TCustomRESTRequest)
-  private
-    fInstanceID: Integer;
-  protected
-    procedure DoBeforeExecute; override;
-  public
-    constructor Create(AOwner: TComponent); override;
-
-    property InstanceID: Integer read fInstanceID write fInstanceID;
+    property Start: Boolean read fStart write fStart;
   end;
 
   TTuneChannelRequest = class(TCustomRESTRequest)
@@ -167,7 +158,8 @@ type
     property Channel: Integer read fChannel write fChannel;
   end;
 
-  TTuneProgramRequest = class(TCustomRESTRequest)
+  // Do not use -- puts Ceton into a bad state where it will give the message "Unable to allocate CableCARD slot"
+{  TTuneProgramRequest = class(TCustomRESTRequest)
   private
     fProgramNumber: Integer;
     fInstanceID: Integer;
@@ -178,35 +170,74 @@ type
 
     property InstanceID: Integer read fInstanceID write fInstanceID;
     property ProgramNumber: Integer read fProgramNumber write fProgramNumber;
+  end;}
+
+  TVarRequest = class(TCustomRESTRequest)
+  private
+    fInstanceID: Integer;
+    fVarName: String;
+    fServiceName: String;
+  protected
+    procedure DoBeforeExecute; override;
+  public
+    constructor Create(AOwner: TComponent); override;
+
+    property InstanceID: Integer read fInstanceID write fInstanceID;
+    property ServiceName: String read fServiceName write fServiceName;
+    property VarName: String read fVarName write fVarName;
   end;
 
   TREST = class abstract
   public
+    type
+      TValidateValueCallback = reference to function(const aValue: String): Boolean;
+  public
     class procedure RequestChannelMap(const aClient: TRestClient; const aChannelMap: TChannelMap); static;
     class procedure StartStream(const aClient: TRestClient; const aTunerID: Integer; const aIP: String; const aPort: Integer); static;
-    class procedure StopStream(const aClient: TRestClient; const aTunerID: Integer); static;
+    class procedure StopStream(const aClient: TRestClient; const aTunerID: Integer; const aIP: String; const aPort: Integer); static;
     class procedure TuneChannel(const aClient: TRestClient; const aTunerID, aChannel: Integer); static;
-    class procedure TuneProgram(const aClient: TRestClient; const aTunerID, aProgram: Integer); static;
+//    class procedure TuneProgram(const aClient: TRestClient; const aTunerID, aProgram: Integer); static;
+    class function GetVar(const aClient: TRestClient; const aTunerID: Integer; const aServiceName, aVarName: String): String; static;
+    class function WaitForVar(const aClient: TRestClient; const aTunerID: Integer; const aServiceName, aVarName: String; const aTries: Integer; const aWaitMs: Integer; const aValidateValueCallback: TValidateValueCallback): String; static;
+    class function VarMatches(const aValue: String): TValidateValueCallback; static;
+    class function VarContains(const aValue: String): TValidateValueCallback; static;
   end;
 
-  TTuner = class
+  TTunerStats = record
+    Channel: Integer;
+    Streaming: Boolean;
+    PacketsReceived: Integer;
+    PacketsRead: array[0..9] of Integer;
+    ReaderWait: array[0..9] of Integer;
+  end;
+
+  TTuner = class(TInterfacedPersistent, IVideoStats)
   private
     fStreaming: Boolean;
     fChannel: Integer;
     fRefCount: Integer;
-    fSink: TRTPVideoSink;
-    function GetSink: TRTPVideoSink;
+    fSink: IRTPVideoSink;
+    fStats: TTunerStats;
+    function GetSink: IRTPVideoSink;
+    procedure SetChannel(const Value: Integer);
+    procedure SetStreaming(const Value: Boolean);
+  protected
+    // IVideoStats
+    procedure PacketReceived(const aPacketIndex: Integer; const aPacket: TVideoPacket);
+    procedure PacketRead(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
+    procedure ReaderWait(const aReaderIndex: Integer; const aPacketIndex: Integer);
   public
     constructor Create;
     destructor Destroy; override;
 
     procedure RemoveSink;
 
-    property Sink: TRTPVideoSink read GetSink;
+    property Sink: IRTPVideoSink read GetSink;
 
-    property Streaming: Boolean read fStreaming write fStreaming;
-    property Channel: Integer read fChannel write fChannel;
+    property Streaming: Boolean read fStreaming write SetStreaming;
+    property Channel: Integer read fChannel write SetChannel;
     property RefCount: Integer read fRefCount write fRefCount;
+    property Stats: TTunerStats read fStats;
   end;
 
   TTunerList = class
@@ -227,12 +258,15 @@ type
 
   TCetonViewer = record
     TunerIndex: Integer;
+    Sink: IRTPVideoSink;
     Reader: TVideoReader;
 
     function IsValid: Boolean;
 
     class function Invalid: TCetonViewer; static;
   end;
+
+  TTunerStatsArray = TArray<TTunerStats>;
 
   TCetonClient = class
   private
@@ -257,6 +291,8 @@ type
     procedure StopStream(var aViewer: TCetonViewer);
     procedure ReadStream(var aViewer: TCetonViewer; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
 
+    function GetTunerStats: TTunerStatsArray;
+
     property ListenIP: String read GetListenIP;
   end;
 
@@ -277,14 +313,14 @@ implementation
 
 { TChannelMap }
 
+function TChannelMap.ChannelMapItemComparison(const Left, Right: TChannelMapItem): Integer;
+begin
+  Result := Left.Channel - Right.Channel;
+end;
+
 constructor TChannelMap.Create;
 begin
-  fList := TObjectList<TChannelMapItem>.Create(
-    TDelegatedComparer<TChannelMapItem>.Construct(
-      function(const Left, Right: TChannelMapItem): Integer
-      begin
-        Result := Left.Channel - Right.Channel;
-      end), True);
+  fList := TObjectList<TChannelMapItem>.Create(TDelegatedComparer<TChannelMapItem>.Construct(ChannelMapItemComparison), True);
 end;
 
 destructor TChannelMap.Destroy;
@@ -557,17 +593,18 @@ end;
 class procedure TREST.StartStream(const aClient: TRestClient;
   const aTunerID: Integer; const aIP: String; const aPort: Integer);
 var
-  lRequest: TStartStreamRequest;
+  lRequest: TStartStopStreamRequest;
 begin
   Log.d('Starting stream on tuner %d to %s:%d', [aTunerID, aIP, aPort]);
 
-  lRequest := TStartStreamRequest.Create(nil);
+  lRequest := TStartStopStreamRequest.Create(nil);
   try
     lRequest.Client := aClient;
 
     lRequest.InstanceID := aTunerID;
     lRequest.IP := aIP;
     lRequest.Port := aPort;
+    lRequest.Start := True;
 
     lRequest.Execute;
   finally
@@ -576,17 +613,20 @@ begin
 end;
 
 class procedure TREST.StopStream(const aClient: TRestClient;
-  const aTunerID: Integer);
+  const aTunerID: Integer; const aIP: String; const aPort: Integer);
 var
-  lRequest: TStopStreamRequest;
+  lRequest: TStartStopStreamRequest;
 begin
   Log.d('Stopping stream on tuner %d', [aTunerID]);
 
-  lRequest := TStopStreamRequest.Create(nil);
+  lRequest := TStartStopStreamRequest.Create(nil);
   try
     lRequest.Client := aClient;
 
     lRequest.InstanceID := aTunerID;
+    lRequest.IP := aIP;
+    lRequest.Port := aPort;
+    lRequest.Start := False;
 
     lRequest.Execute;
   finally
@@ -614,7 +654,7 @@ begin
   end;
 end;
 
-class procedure TREST.TuneProgram(const aClient: TRestClient; const aTunerID,
+{class procedure TREST.TuneProgram(const aClient: TRestClient; const aTunerID,
   aProgram: Integer);
 var
   lRequest: TTuneProgramRequest;
@@ -632,6 +672,82 @@ begin
   finally
     lRequest.Free;
   end;
+end;}
+
+class function TREST.GetVar(const aClient: TRestClient; const aTunerID: Integer;
+  const aServiceName, aVarName: String): String;
+const
+  cValueStart = '<body class="get">';
+  cValueEnd = '</body></html>';
+var
+  lRequest: TVarRequest;
+  lValue: String;
+  lStart,lEnd: Integer;
+begin
+  Log.d('Getting %s\%s for tuner %d', [aServiceName, aVarName, aTunerID]);
+
+  lRequest := TVarRequest.Create(nil);
+  try
+    lRequest.Client := aClient;
+
+    lRequest.InstanceID := aTunerID;
+    lRequest.ServiceName := aServiceName;
+    lRequest.VarName := aVarName;
+
+    lRequest.Execute;
+
+    lValue := lRequest.Response.Content;
+  finally
+    lRequest.Free;
+  end;
+
+  lStart := lValue.IndexOf(cValueStart);
+  lEnd := lValue.IndexOf(cValueEnd);
+  if (lStart > -1) and (lEnd > -1) then
+    lValue := lValue.Substring(lStart+Length(cValueStart), lEnd-lStart-Length(cValueStart));
+
+  Log.d('Received %s\%s for tuner %d: "%s"', [aServiceName, aVarName, aTunerID, lValue]);
+
+  Result := lValue;
+end;
+
+class function TREST.WaitForVar(const aClient: TRestClient;
+  const aTunerID: Integer; const aServiceName, aVarName: String;
+  const aTries: Integer; const aWaitMs: Integer;
+  const aValidateValueCallback: TValidateValueCallback): String;
+var
+  lTries: Integer;
+  lValue: String;
+begin
+  lTries := 0;
+  repeat
+    Inc(lTries);
+    lValue := GetVar(aClient, aTunerID, aServiceName, aVarName);
+    if aValidateValueCallback(lValue) then
+      Exit(lValue)
+    else if lTries < aTries then
+      Sleep(aWaitMs);
+  until (lTries >= aTries);
+
+  raise ECetonError.CreateFmt('Unable to get value %s:%s for tuner %d', [aServiceName, aVarName, aTunerID]);
+end;
+
+class function TREST.VarMatches(const aValue: String): TValidateValueCallback;
+begin
+  Result :=
+    function(const aCurrentValue: String): Boolean
+    begin
+      Result := SameText(aCurrentValue, aValue);
+    end;
+end;
+
+class function TREST.VarContains(const aValue: String): TValidateValueCallback;
+begin
+  Result :=
+    function(const aCurrentValue: String): Boolean
+    begin
+      Result := aCurrentValue.ToLower.Contains(aValue.ToLower);
+    end;
 end;
 
 { TTunerList }
@@ -718,19 +834,27 @@ var
   lReader: TVideoReader;
   lReceivedPacket: Boolean;
   lCount: Integer;
-  lIndex: Integer;
+  lChannelIndex: Integer;
+  lChannel: TChannelMapItem;
 begin
   Lock;
   try
+    aViewer := TCetonViewer.Invalid;
+
     aViewer.TunerIndex := aTuner;
     if aViewer.TunerIndex < 0 then
     begin
       aViewer.TunerIndex := fTunerList.Find(aChannel);
       if aViewer.TunerIndex = -1 then
-        raise ECetonTunerError.Create('All tuners are busy');
+        raise ECetonError.Create('All tuners are busy');
     end;
     if aViewer.TunerIndex >= fTunerList.Count then
-      raise ECetonTunerError.CreateFmt('Invalid tuner: %d', [aViewer.TunerIndex]);
+      raise ECetonError.CreateFmt('Invalid tuner: %d', [aViewer.TunerIndex]);
+
+    lChannelIndex := fConfig.ChannelMap.IndexOf(aChannel);
+    if lChannelIndex = -1 then
+      raise ECetonError.CreateFmt('Unknown channel: %d', [aChannel]);
+    lChannel := fConfig.ChannelMap[lChannelIndex];
 
     lTuner := fTunerList[aViewer.TunerIndex];
 
@@ -738,40 +862,55 @@ begin
     lTuner.Streaming := True;
     lTuner.RefCount := lTuner.RefCount + 1;
 
+    lCount := 0;
+    repeat
+      // Only send tuning commands if we are the first to request from the tuner or
+      // we're on a second/third try
+      if (lCount > 0) or (lTuner.RefCount = 1) then
+      begin
+        if not SameText(TREST.GetVar(fClient, aViewer.TunerIndex, 'av', 'TransportState'), 'STOPPED') then
+        begin
+          TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+          TREST.WaitForVar(fClient, aViewer.TunerIndex, 'av', 'TransportState', 5, 1000, TREST.VarMatches('STOPPED'));
+        end;
+
+        TREST.StartStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+
+        TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
+        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'tuner', 'Frequency', 5, 1000, TREST.VarMatches(IntToStr(lChannel.Frequency)));
+        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+
+        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+
+//        TREST.TuneProgram(fClient, aViewer.TunerIndex, lChannel.ItemProgram);
+//        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+
+//        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+
+        // Getlock, Service: cas, Var: Lock
+      end;
+
+      // Use another reader to wait for signal before returning
+      // If there's an issue, then we can fix it right now
+      lTuner.Sink.RegisterReader(lReader);
+      try
+        lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
+      finally
+        lTuner.Sink.UnregisterReader(lReader);
+      end;
+      Inc(lCount);
+
+      if lCount >= 3 then
+      begin
+        Log.D('No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
+
+        raise ECetonError.Create('No video data');
+      end;
+    until lReceivedPacket or (lCount >= 3);
+
     lTuner.Sink.RegisterReader(aViewer.Reader);
 
-    // Use another reader to wait for signal before returning
-    // If there's an issue, then we can fix it right now
-    lTuner.Sink.RegisterReader(lReader);
-    try
-      lCount := 0;
-      repeat
-        // Only send tuning commands if we are the first to request from the tuner or
-        // we're on a second/third try
-        if (lCount > 0) or (lTuner.RefCount = 1) then
-        begin
-          TREST.StopStream(fClient, aViewer.TunerIndex);
-          TREST.TuneChannel(fClient, aViewer.TunerIndex, 0);
-          TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
-          lIndex := fConfig.ChannelMap.IndexOf(aChannel);
-          if lIndex > -1 then
-            TREST.TuneProgram(fClient, aViewer.TunerIndex, fConfig.ChannelMap[lIndex].ItemProgram);
-          TREST.StartStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
-        end;
-
-        lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
-        Inc(lCount);
-
-        if lCount >= 3 then
-        begin
-          Log.D('No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
-
-          raise ECetonTunerError.Create('No video data');
-        end;
-      until lReceivedPacket or (lCount >= 3);
-    finally
-      lTuner.Sink.UnregisterReader(lReader);
-    end;
+    aViewer.Sink := lTuner.Sink;
   finally
     Unlock;
   end;
@@ -792,12 +931,14 @@ begin
 
       if lTuner.RefCount = 0 then
       begin
-        lTuner.RemoveSink;
+        try
+          TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+        finally
+          lTuner.RemoveSink;
 
-        lTuner.Channel := 0;
-        lTuner.Streaming := False;
-
-        TREST.StopStream(fClient, aViewer.TunerIndex);
+          lTuner.Channel := 0;
+          lTuner.Streaming := False;
+        end;
       end;
     finally
       Unlock;
@@ -829,17 +970,17 @@ end;
 
 procedure TCetonClient.ReadStream(var aViewer: TCetonViewer; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
 begin
-  Lock;
-  try
+  if Assigned(aViewer.Sink) then
+  begin
     try
-      fTunerList[aViewer.TunerIndex].Sink.Read(aViewer.Reader, aBuffer, aCount, aTimeoutMs);
+      aViewer.Sink.Read(aViewer.Reader, aBuffer, aCount, aTimeoutMs);
     except
       on e: EVideoError do
-        raise ECetonTunerError.Create(e.Message);
+        raise ECetonError.Create(e.Message);
     end;
-  finally
-    Unlock;
-  end;
+  end
+  else
+    raise ECetonError.Create('Video stream not available');
 end;
 
 procedure TCetonClient.Lock;
@@ -882,9 +1023,23 @@ begin
   end;
 end;
 
-{ TStartStreamRequest }
+function TCetonClient.GetTunerStats: TTunerStatsArray;
+var
+  i: Integer;
+begin
+  Lock;
+  try
+    SetLength(Result, fTunerList.Count);
+    for i := 0 to fTunerList.Count-1 do
+      Result[i] := fTunerList[i].Stats;
+  finally
+    Unlock;
+  end;
+end;
 
-procedure TStartStreamRequest.DoBeforeExecute;
+{ TStartStopStreamRequest }
+
+procedure TStartStopStreamRequest.DoBeforeExecute;
 begin
   inherited;
 
@@ -892,31 +1047,13 @@ begin
   AddParameter('dest_ip', IP);
   AddParameter('dest_port', IntToStr(Port));
   AddParameter('protocol', '0');
-  AddParameter('start', '1');
+  if fStart then
+    AddParameter('start', '1')
+  else
+    AddParameter('start', '0');
 end;
 
-constructor TStartStreamRequest.Create(AOwner: TComponent);
-begin
-  inherited;
-
-  Method := TRESTRequestMethod.rmPost;
-  Resource := 'stream_request.cgi';
-end;
-
-{ TStopStreamRequest }
-
-procedure TStopStreamRequest.DoBeforeExecute;
-begin
-  inherited;
-
-  AddParameter('instance_id', IntToStr(InstanceID));
-  AddParameter('dest_ip', '192.168.200.1'); // Just set to a dummy ip to help with debugging
-  AddParameter('dest_port', '8000');
-  AddParameter('protocol', '0');
-  AddParameter('start', '0');
-end;
-
-constructor TStopStreamRequest.Create(AOwner: TComponent);
+constructor TStartStopStreamRequest.Create(AOwner: TComponent);
 begin
   inherited;
 
@@ -943,7 +1080,7 @@ begin
 end;
 
 { TTuneProgramRequest }
-
+{
 procedure TTuneProgramRequest.DoBeforeExecute;
 begin
   inherited;
@@ -958,6 +1095,25 @@ begin
 
   Method := TRESTRequestMethod.rmPost;
   Resource := 'program_request.cgi';
+end;}
+
+{ TVarRequest }
+
+procedure TVarRequest.DoBeforeExecute;
+begin
+  inherited;
+
+  AddParameter('i', IntToStr(InstanceID));
+  AddParameter('s', ServiceName);
+  AddParameter('v', VarName);
+end;
+
+constructor TVarRequest.Create(AOwner: TComponent);
+begin
+  inherited;
+
+  Method := TRESTRequestMethod.rmGET;
+  Resource := 'get_var';
 end;
 
 { TTuner }
@@ -974,16 +1130,47 @@ begin
   inherited;
 end;
 
-function TTuner.GetSink: TRTPVideoSink;
+function TTuner.GetSink: IRTPVideoSink;
 begin
   if not Assigned(fSink) then
-    fSink := TRTPVideoSink.Create(2048, 1000);
+    fSink := TRTPVideoSink.Create(2048, 1000, Self);
   Result := fSink;
 end;
 
 procedure TTuner.RemoveSink;
 begin
-  FreeAndNil(fSink);
+  fSink := nil;
+end;
+
+procedure TTuner.PacketReceived(const aPacketIndex: Integer;
+  const aPacket: TVideoPacket);
+begin
+  Inc(fStats.PacketsReceived);
+end;
+
+procedure TTuner.PacketRead(const aReaderIndex, aPacketIndex: Integer;
+  const aPacket: TVideoPacket);
+begin
+  if aReaderIndex < Length(fStats.PacketsRead) then
+    Inc(fStats.PacketsRead[aReaderIndex]);
+end;
+
+procedure TTuner.ReaderWait(const aReaderIndex, aPacketIndex: Integer);
+begin
+  if aReaderIndex < Length(fStats.PacketsRead) then
+    Inc(fStats.ReaderWait[aReaderIndex]);
+end;
+
+procedure TTuner.SetChannel(const Value: Integer);
+begin
+  fChannel := Value;
+  fStats.Channel := fChannel;
+end;
+
+procedure TTuner.SetStreaming(const Value: Boolean);
+begin
+  fStreaming := Value;
+  fStats.Streaming := fStreaming;
 end;
 
 { TCetonVideoStream }
@@ -1007,9 +1194,11 @@ end;
 
 destructor TCetonVideoStream.Destroy;
 begin
-  fClient.StopStream(fViewer);
-
-  fBuffer.free;
+  try
+    fClient.StopStream(fViewer);
+  finally
+    fBuffer.free;
+  end;
 
   inherited;
 end;
@@ -1082,6 +1271,7 @@ class function TCetonViewer.Invalid: TCetonViewer;
 begin
   Result := Default(TCetonViewer);
   Result.TunerIndex := -1;
+  Result.Reader.ReaderIndex := -1;
 end;
 
 function TCetonViewer.IsValid: Boolean;
