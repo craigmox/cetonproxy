@@ -28,7 +28,8 @@ uses
   REST.Json.Types,
   REST.JsonReflect,
 
-  SocketUtils;
+  SocketUtils,
+  VideoUtils;
 
 type
   ECetonError = class(Exception);
@@ -285,6 +286,8 @@ type
     procedure SetConfig(const aConfig: TCetonConfig);
     procedure GetConfig(const aConfig: TCetonConfig);
 
+    function TryGetChannel(const aNumber: Integer; const aChannel: TChannelMapItem): Boolean;
+
     procedure RequestChannelMap;
 
     procedure StartStream(const aTuner: Integer; const aChannel: Integer; out aViewer: TCetonViewer);
@@ -298,9 +301,13 @@ type
 
   TCetonVideoStream = class(TStream)
   private
-    fBuffer: TRingBuffer;
+    fWriteBuffer, fReadBuffer: TRingBuffer;
     fClient: TCetonClient;
     fViewer: TCetonViewer;
+    fConverter: TVideoConverter;
+
+    function ConverterRead(const aBuf: PByte; const aSize: Integer): Integer;
+    function ConverterWrite(const aBuf: PByte; const aSize: Integer): Integer;
   public
     constructor Create(const aClient: TCetonClient; const aTuner: Integer; const aChannel: Integer); reintroduce;
     destructor Destroy; override;
@@ -837,82 +844,86 @@ var
   lChannelIndex: Integer;
   lChannel: TChannelMapItem;
 begin
-  Lock;
+  aViewer := TCetonViewer.Invalid;
   try
-    aViewer := TCetonViewer.Invalid;
-
-    aViewer.TunerIndex := aTuner;
-    if aViewer.TunerIndex < 0 then
-    begin
-      aViewer.TunerIndex := fTunerList.Find(aChannel);
-      if aViewer.TunerIndex = -1 then
-        raise ECetonError.Create('All tuners are busy');
-    end;
-    if aViewer.TunerIndex >= fTunerList.Count then
-      raise ECetonError.CreateFmt('Invalid tuner: %d', [aViewer.TunerIndex]);
-
-    lChannelIndex := fConfig.ChannelMap.IndexOf(aChannel);
-    if lChannelIndex = -1 then
-      raise ECetonError.CreateFmt('Unknown channel: %d', [aChannel]);
-    lChannel := fConfig.ChannelMap[lChannelIndex];
-
-    lTuner := fTunerList[aViewer.TunerIndex];
-
-    lTuner.Channel := aChannel;
-    lTuner.Streaming := True;
-    lTuner.RefCount := lTuner.RefCount + 1;
-
-    lCount := 0;
-    repeat
-      // Only send tuning commands if we are the first to request from the tuner or
-      // we're on a second/third try
-      if (lCount > 0) or (lTuner.RefCount = 1) then
+    Lock;
+    try
+      aViewer.TunerIndex := aTuner;
+      if aViewer.TunerIndex < 0 then
       begin
-        if not SameText(TREST.GetVar(fClient, aViewer.TunerIndex, 'av', 'TransportState'), 'STOPPED') then
+        aViewer.TunerIndex := fTunerList.Find(aChannel);
+        if aViewer.TunerIndex = -1 then
+          raise ECetonError.Create('All tuners are busy');
+      end;
+      if aViewer.TunerIndex >= fTunerList.Count then
+        raise ECetonError.CreateFmt('Invalid tuner: %d', [aViewer.TunerIndex]);
+
+      lChannelIndex := fConfig.ChannelMap.IndexOf(aChannel);
+      if lChannelIndex = -1 then
+        raise ECetonError.CreateFmt('Unknown channel: %d', [aChannel]);
+      lChannel := fConfig.ChannelMap[lChannelIndex];
+
+      lTuner := fTunerList[aViewer.TunerIndex];
+
+      lTuner.Channel := aChannel;
+      lTuner.Streaming := True;
+      lTuner.RefCount := lTuner.RefCount + 1;
+
+      lCount := 0;
+      repeat
+        // Only send tuning commands if we are the first to request from the tuner or
+        // we're on a second/third try
+        if (lCount > 0) or (lTuner.RefCount = 1) then
         begin
-          TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
-          TREST.WaitForVar(fClient, aViewer.TunerIndex, 'av', 'TransportState', 5, 1000, TREST.VarMatches('STOPPED'));
+          if not SameText(TREST.GetVar(fClient, aViewer.TunerIndex, 'av', 'TransportState'), 'STOPPED') then
+          begin
+            TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'av', 'TransportState', 5, 1000, TREST.VarMatches('STOPPED'));
+          end;
+
+          TREST.StartStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+
+          TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
+          TREST.WaitForVar(fClient, aViewer.TunerIndex, 'tuner', 'Frequency', 5, 1000, TREST.VarMatches(IntToStr(lChannel.Frequency)));
+          TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+
+          TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+
+  //        TREST.TuneProgram(fClient, aViewer.TunerIndex, lChannel.ItemProgram);
+  //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+
+  //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+
+          // Getlock, Service: cas, Var: Lock
         end;
 
-        TREST.StartStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+        // Use another reader to wait for signal before returning
+        // If there's an issue, then we can fix it right now
+        lTuner.Sink.RegisterReader(lReader);
+        try
+          lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
+        finally
+          lTuner.Sink.UnregisterReader(lReader);
+        end;
+        Inc(lCount);
 
-        TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
-        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'tuner', 'Frequency', 5, 1000, TREST.VarMatches(IntToStr(lChannel.Frequency)));
-        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+        if lCount >= 3 then
+        begin
+          Log.D('No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
 
-        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+          raise ECetonError.Create('No video data');
+        end;
+      until lReceivedPacket or (lCount >= 3);
 
-//        TREST.TuneProgram(fClient, aViewer.TunerIndex, lChannel.ItemProgram);
-//        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+      lTuner.Sink.RegisterReader(aViewer.Reader);
 
-//        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
-
-        // Getlock, Service: cas, Var: Lock
-      end;
-
-      // Use another reader to wait for signal before returning
-      // If there's an issue, then we can fix it right now
-      lTuner.Sink.RegisterReader(lReader);
-      try
-        lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
-      finally
-        lTuner.Sink.UnregisterReader(lReader);
-      end;
-      Inc(lCount);
-
-      if lCount >= 3 then
-      begin
-        Log.D('No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
-
-        raise ECetonError.Create('No video data');
-      end;
-    until lReceivedPacket or (lCount >= 3);
-
-    lTuner.Sink.RegisterReader(aViewer.Reader);
-
-    aViewer.Sink := lTuner.Sink;
-  finally
-    Unlock;
+      aViewer.Sink := lTuner.Sink;
+    finally
+      Unlock;
+    end;
+  except
+    aViewer := TCetonViewer.Invalid;
+    raise;
   end;
 end;
 
@@ -1011,6 +1022,25 @@ begin
   finally
     Unlock;
   end;
+end;
+
+function TCetonClient.TryGetChannel(const aNumber: Integer;
+  const aChannel: TChannelMapItem): Boolean;
+var
+  lIndex: Integer;
+begin
+  Lock;
+  try
+    lIndex := fConfig.ChannelMap.IndexOf(aNumber);
+    if lIndex > -1 then
+    begin
+      aChannel.Assign(fConfig.ChannelMap[lIndex]);
+      Exit(True);
+    end;
+  finally
+    Unlock;
+  end;
+  Result := False;
 end;
 
 procedure TCetonClient.GetConfig(const aConfig: TCetonConfig);
@@ -1175,29 +1205,90 @@ end;
 
 { TCetonVideoStream }
 
+function TCetonVideoStream.ConverterRead(const aBuf: PByte;
+  const aSize: Integer): Integer;
+begin
+  // Read packets from client into a ring buffer and then
+  // copy them into the read buffer to go to converter
+
+  try
+    while fReadBuffer.Size < aSize do
+      fClient.ReadStream(fViewer, fReadBuffer, aSize-fReadBuffer.Size, 5000);
+
+    Result := fReadBuffer.Read(aBuf^, aSize);
+  except
+    Result := 0;
+  end;
+end;
+
+function TCetonVideoStream.ConverterWrite(const aBuf: PByte;
+  const aSize: Integer): Integer;
+begin
+  // Copy data from buffer into ring buffer to go to recipient
+
+  try
+    fWriteBuffer.Write(aBuf^, aSize);
+    Result := aSize;
+  except
+    Result := 0;
+  end;
+end;
+
 constructor TCetonVideoStream.Create(const aClient: TCetonClient;
   const aTuner: Integer; const aChannel: Integer);
+var
+  lChannel: TChannelMapItem;
 begin
   fClient := aClient;
 
-  fBuffer := TRingBuffer.Create;
+  fReadBuffer := TRingBuffer.Create;
+  fWriteBuffer := TRingBuffer.Create;
 
   fClient.StartStream(aTuner, aChannel, fViewer);
+
+  lChannel := TChannelMapItem.Create;
+  try
+    if fClient.TryGetChannel(aChannel, lChannel) then
+    begin
+      fConverter := TVideoConverter.Create;
+      fConverter.OnRead := ConverterRead;
+      fConverter.OnWrite := ConverterWrite;
+      fConverter.ProgramFilter := lChannel.ItemProgram;
+    end;
+  finally
+    lChannel.Free;
+  end;
 end;
 
 function TCetonVideoStream.Read(var Buffer; Count: Longint): Longint;
 begin
-  fClient.ReadStream(fViewer, fBuffer, Count - fBuffer.Size, 5000);
+  if Assigned(fConverter) then
+  begin
+    // Fill ring buffer by way of video converter
+    while fWriteBuffer.Size < Count do
+      if not fConverter.Next then
+        Break;
+  end
+  else
+  begin
+    // Fill ring buffer directly from client
+    fClient.ReadStream(fViewer, fWriteBuffer, Count - fWriteBuffer.Size, 5000);
+  end;
 
-  Result := fBuffer.Read(Buffer, Count);
+  Result := fWriteBuffer.Read(Buffer, Count);
 end;
 
 destructor TCetonVideoStream.Destroy;
 begin
   try
-    fClient.StopStream(fViewer);
+    try
+      fClient.StopStream(fViewer);
+    finally
+      fConverter.Free;
+    end;
   finally
-    fBuffer.free;
+    fReadBuffer.Free;
+    fWriteBuffer.Free;
   end;
 
   inherited;

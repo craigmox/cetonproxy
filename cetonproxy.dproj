@@ -59,7 +59,6 @@
         <SanitizedProjectName>cetonproxy</SanitizedProjectName>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
-        <DCC_Define>DebugCorrupt;$(DCC_Define)</DCC_Define>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_UsePackage>DBXSqliteDriver;dxFlowChartRS26;dxPSdxMapControlLnkRS26;DBXDb2Driver;paxcomp_D;vclactnband;dxBarRS26;vclFireDAC;dxFireDACEMFRS26;CoolTrayIcon_D;tethering;dxSpreadSheetInplaceRichEditRS26;FireDACADSDriver;JvPluginSystem;tmswizdXE12;TMSQueryStudio;dxPSdxSpreadSheetLnkRS26;dxRichEditCoreRS26;FireDACMSSQLDriver;vcltouch;JvBands;TMSCloudPkgDXE12;vcldb;SKIA_FlexCel_Core;svn;JvJans;FlexCel_Report;Syn;odac240;dacfmx240;JvDotNetCtrls;TMSScripter_Memo;dxGDIPlusRS26;Hydra_VCL_D26;VCL_FlexCel_Components;dxPSdxFCLnkRS26;AH_COMP_DESIGN;dxCloudServiceLibraryRS26;crcontrols240;dxPSLnksRS26;FireDACDBXDriver;dxPDFViewerRS26;cxGridRS26;dxPsPrVwAdvRS26;vclx;dxPScxTLLnkRS26;advchartdXE12;RESTBackendComponents;VCLRESTComponents;CBCompsR;vclie;bindengine;CloudService;dxmdsRS26;JvHMI;FireDACMySQLDriver;PowelComponents_D;dxdborRS26;DataSnapClient;dxFireDACServerModeRS26;bindcompdbx;GR32_D;DBXSybaseASEDriver;cxPivotGridRS26;cxTreeListdxBarPopupMenuRS26;dsnapcon;cxTreeListRS26;dxPScxPivotGridLnkRS26;VirtualTreesR;cxSchedulerRibbonStyleEventEditorRS26;dxPSCoreRS26;AbbreviaD;FireDACMSAccDriver;fmxFireDAC;FireDACInfxDriver;vclimg;dxBarExtItemsRS26;Jcl;dxSpreadSheetRS26;FlexCel_XlsAdapter;dxPSdxGaugeControlLnkRS26;tmsdXE12;TMSDiagram;DBXOdbcDriver;FireDACTDataDriver;dxdbtrRS26;dxRichEditControlCoreRS26;soaprtl;DbxCommonDriver;dxFlowChartAdvancedCustomizeFormRS26;JvManagedThreads;dxDockingRS26;xmlrtl;soapmidas;DataSnapNativeClient;fmxobj;JvTimeFramework;GR32_R;rtl;emsserverresource;DbxClientDriver;odacvcl240;DBXSybaseASADriver;TMSScripter_IDE;cxLibraryRS26;dxPScxSchedulerLnkRS26;JvSystem;JvStdCtrls;dxSpreadSheetConditionalFormattingDialogsRS26;appanalytics;lmdrtdocking;dxRibbonCustomizationFormRS26;cxSchedulerGridRS26;bindcompvcl;dxFlowChartLayoutsRS26;FMX_FlexCel_Components;dxADOEMFRS26;JvPascalInterpreter;JvDocking;VclSmp;oraprov240;FireDACODBCDriver;OpenGeometry;JclVcl;DataSnapIndy10ServerTransport;dxRibbonRS26;dxPScxCommonRS26;dxRichEditDocumentModelRS26;DataSnapProviderClient;FireDACMongoDBDriver;dxFlowChartDesignerRS26;JvControls;dxPScxGridLnkRS26;JvPrintPreview;dxSpreadSheetCoreRS26;RESTComponents;DBXInterBaseDriver;FlexCel_Pdf;FMX_FlexCel_Core;dxPScxExtCommonRS26;emsclientfiredac;DataSnapFireDAC;svnui;JvGlobus;lmdrtl;DBXMSSQLDriver;JvMM;TMSScripter;DatasnapConnectorsFreePascal;dxRichEditControlRS26;dxGaugeControlRS26;dxorgcRS26;dxPScxVGridLnkRS26;bindcompfmx;JvNet;DBXOracleDriver;inetdb;JvAppFrm;dxBarDBNavRS26;dxDBXServerModeRS26;AbbreviaVCLD;FireDACIBDriver;fmx;fmxdae;dxServerModeRS26;dxWizardControlRS26;JvWizards;dxTabbedMDIRS26;dxEMFRS26;dbexpress;dxComnRS26;JvPageComps;dsnap;DataSnapCommon;emsclient;lmdrtrtlx;FireDACCommon;JvDB;IndySystem260;DataSnapConnectors;cxSchedulerTreeBrowserRS26;dxADOServerModeRS26;soapserver;TMSScripter_Legacy;JclDeveloperTools;dac240;vacommpkgdXE12;cxPivotGridOLAPRS26;TMSScripter_VCL;cxVerticalGridRS26;dxtrmdRS26;FireDACOracleDriver;DBXMySQLDriver;JvCmp;dxPSdxLCLnkRS26;cxSchedulerRS26;DBXFirebirdDriver;cxSchedulerWebServiceStorageRS26;Hydra_Core_D26;FireDACCommonODBC;FireDACCommonDriver;dxMapControlRS26;IndyProtocols260;inet;dxSpellCheckerRS26;JvCustom;dxSpreadSheetCoreConditionalFormattingDialogsRS26;vcl;odacfmx240;dxPSdxDBOCLnkRS26;JvXPCtrls;IndyCore260;FireDACDb2Driver;dxSpreadSheetReportDesignerRS26;dxPScxPCProdRS26;madExcept_;tmsxlsdXE12;dxNavBarRS26;dxCoreRS26;madBasic_;cxExportRS26;FireDAC;dxHttpIndyRequestRS26;dxPSPrVwRibbonRS26;JvCore;DSPack_R;JvCrypt;FireDACSqliteDriver;FireDACPgDriver;dxPSRichEditControlLnkRS26;FireDACASADriver;cxPivotGridChartRS26;JvDlgs;JvRuntimeDesign;llPDFLibD;FlexCel_Core;CheckComboBoxD;dacvcl240;DataSnapServer;dxPSdxDBTVLnkRS26;vclwinx;FireDACDSDriver;madDisAsm_;tmsexdXE12;dxTileControlRS26;dxSkinsCoreRS26;CustomIPTransport;vcldsnap;bindcomp;dxPSdxOCLnkRS26;DBXInformixDriver;SynEdit_R;dclTMSQueryStudio;dbxcds;VCL_FlexCel_Core;adortl;FlexCel_Render;dxSpreadSheetCoreDialogsRS26;dxBarExtDBItemsRS26;dsnapxml;dbrtl;inetdbxpress;AH_COMP_RUNTIME;dxPSdxPDFViewerLnkRS26;dxRichEditInplaceRS26;fmxase;$(DCC_UsePackage)</DCC_UsePackage>
@@ -119,6 +118,27 @@
             <DesignClass>TDataModule</DesignClass>
         </DCCReference>
         <DCCReference Include="SocketUtils.pas"/>
+        <DCCReference Include="VideoUtils.pas"/>
+        <DCCReference Include="ffmpeg\src\examples\FFUtils.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavcodec.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavformat.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavformat_avio.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_error.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_mathematics.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_mem.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\FFTypes.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_buffer.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_dict.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_frame.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_hwcontext.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_pixfmt.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_rational.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_samplefmt.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_opt.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_bprint.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_log.pas"/>
+        <DCCReference Include="ffmpeg\src\headers\libavutil_avstring.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>
@@ -140,11 +160,11 @@
                     <Source Name="MainSource">cetonproxy.dpr</Source>
                 </Source>
                 <Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dclDataSnapNativeServer260.bpl">Embarcadero DBExpress DataSnap Native Server Components</Excluded_Packages>
                     <Excluded_Packages Name="$(BDSBIN)\dcloffice2k260.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
                     <Excluded_Packages Name="$(BDSBIN)\dclofficexp260.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
                     <Excluded_Packages Name="$(BDSBIN)\dclIPIndyImpl260.bpl">IP Abstraction Indy Implementation Design Time</Excluded_Packages>
                     <Excluded_Packages Name="$(BDSBIN)\dclemsedge260.bpl">Embarcadero RAD Server Edge Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclDataSnapNativeServer260.bpl">Embarcadero DBExpress DataSnap Native Server Components</Excluded_Packages>
                     <Excluded_Packages Name="C:\DevBin\Projects_TRUNK_26\Bpl\Win32\Release\AbbreviaFMXDDesign250.bpl">TurboPack Abbrevia FMX Designtime Delphi package</Excluded_Packages>
                     <Excluded_Packages Name="C:\DevBin\Projects_TRUNK_26\Bpl\Win32\Release\dcldxSkinsDesignHelperRS26.bpl">ExpressSkins Library Uses Clause Auto Fill Helper by Developer Express Inc.</Excluded_Packages>
                 </Excluded_Packages>
