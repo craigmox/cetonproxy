@@ -8,3 +8,10 @@ An app that allows a Ceton InfiniTV network tuner to appear as a SiliconDust HDH
 4. Click `Edit Channels` for it to request the channel list from the Ceton.
 5. Click the checkmark next to the channels you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
 6. It should now be discoverable as an HDHomeRun device.  (Only tested on NextPVR v5 for now)
+
+# Testing
+The easiest way to test if it's working is to use [VLC](https://www.videolan.org/index.html).
+
+Open a network stream and type in the url `http://<IP of machine running cetonproxy>:5004/auto/v<channel number>`
+
+Right now the app produces no log file, but does log using the `OutputDebugString` method.  Use a program like [DebugView++](https://github.com/CobaltFusion/DebugViewPP/releases) to be able to monitor log messages from cetonproxy.
