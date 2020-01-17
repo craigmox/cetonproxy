@@ -32,6 +32,7 @@ uses
   VideoUtils;
 
 type
+  ECetonClosedError = class(Exception);
   ECetonError = class(Exception);
 
   TChannelMap = class;
@@ -232,6 +233,7 @@ type
     destructor Destroy; override;
 
     procedure RemoveSink;
+    function ContainsSink(const aSink: IRTPVideoSink): Boolean;
 
     property Sink: IRTPVideoSink read GetSink;
 
@@ -305,6 +307,8 @@ type
     fClient: TCetonClient;
     fViewer: TCetonViewer;
     fConverter: TVideoConverter;
+    fConverterError: Exception;
+    fConverterErrorAddress: Pointer;
 
     function ConverterRead(const aBuf: PByte; const aSize: Integer): Integer;
     function ConverterWrite(const aBuf: PByte; const aSize: Integer): Integer;
@@ -865,55 +869,84 @@ begin
 
       lTuner := fTunerList[aViewer.TunerIndex];
 
-      lTuner.Channel := aChannel;
-      lTuner.Streaming := True;
-      lTuner.RefCount := lTuner.RefCount + 1;
-
-      lCount := 0;
-      repeat
-        // Only send tuning commands if we are the first to request from the tuner or
-        // we're on a second/third try
-        if (lCount > 0) or (lTuner.RefCount = 1) then
+      if lTuner.Streaming then
+      begin
+        if lTuner.Channel <> aChannel then
         begin
-          if not SameText(TREST.GetVar(fClient, aViewer.TunerIndex, 'av', 'TransportState'), 'STOPPED') then
+          // By supplying a different channel, we will cut off any existing readers
+          // and create a new sink
+          lTuner.RemoveSink;
+
+          lTuner.RefCount := 0;
+          lTuner.Streaming := False;
+          lTuner.Channel := 0;
+        end;
+      end;
+
+      try
+        lCount := 0;
+        repeat
+          // Only send tuning commands if we are the first to request from the tuner or
+          // we're on a second/third try
+          if (lCount > 0) or (lTuner.RefCount = 0) then
           begin
-            TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
-            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'av', 'TransportState', 5, 1000, TREST.VarMatches('STOPPED'));
+            if not SameText(TREST.GetVar(fClient, aViewer.TunerIndex, 'av', 'TransportState'), 'STOPPED') then
+            begin
+              TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+              TREST.WaitForVar(fClient, aViewer.TunerIndex, 'av', 'TransportState', 5, 1000, TREST.VarMatches('STOPPED'));
+            end;
+
+            TREST.StartStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+
+            TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
+            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'tuner', 'Frequency', 5, 1000, TREST.VarMatches(IntToStr(lChannel.Frequency)));
+            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+
+            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+
+    //        TREST.TuneProgram(fClient, aViewer.TunerIndex, lChannel.ItemProgram);
+    //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+
+    //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+
+            // Getlock, Service: cas, Var: Lock
           end;
 
-          TREST.StartStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+          // Use another reader to wait for signal before returning
+          // If there's an issue, then we can fix it right now
+          lTuner.Sink.RegisterReader(lReader);
+          try
+            lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
+          finally
+            lTuner.Sink.UnregisterReader(lReader);
+          end;
+          Inc(lCount);
 
-          TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
-          TREST.WaitForVar(fClient, aViewer.TunerIndex, 'tuner', 'Frequency', 5, 1000, TREST.VarMatches(IntToStr(lChannel.Frequency)));
-          TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+          if lCount >= 3 then
+          begin
+            Log.D('No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
 
-          TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+            raise ECetonError.Create('No video data');
+          end;
+        until lReceivedPacket or (lCount >= 3);
 
-  //        TREST.TuneProgram(fClient, aViewer.TunerIndex, lChannel.ItemProgram);
-  //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+        lTuner.Channel := aChannel;
+        lTuner.Streaming := True;
+        lTuner.RefCount := lTuner.RefCount + 1;
+      except
+        // To be safe, don't allow the sink to be reused the next time because there may be
+        // a reader hanging onto it from a previously successful stream.
+        lTuner.RemoveSink;
 
-  //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
-
-          // Getlock, Service: cas, Var: Lock
-        end;
-
-        // Use another reader to wait for signal before returning
-        // If there's an issue, then we can fix it right now
-        lTuner.Sink.RegisterReader(lReader);
+        // Don't leave the tuner playing
         try
-          lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
-        finally
-          lTuner.Sink.UnregisterReader(lReader);
+          TRest.StopStream(fClient, aViewer.TunerIndex, ListenIP, 0);
+        except
+          // Ignore
         end;
-        Inc(lCount);
 
-        if lCount >= 3 then
-        begin
-          Log.D('No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
-
-          raise ECetonError.Create('No video data');
-        end;
-      until lReceivedPacket or (lCount >= 3);
+        raise;
+      end;
 
       lTuner.Sink.RegisterReader(aViewer.Reader);
 
@@ -932,27 +965,33 @@ var
   lTuner: TTuner;
 begin
   try
-    Lock;
-    try
-      lTuner := fTunerList[aViewer.TunerIndex];
+    if aViewer.TunerIndex > -1 then
+    begin
+      Lock;
+      try
+        lTuner := fTunerList[aViewer.TunerIndex];
 
-      lTuner.Sink.UnregisterReader(aViewer.Reader);
+        aViewer.Sink.UnregisterReader(aViewer.Reader);
 
-      lTuner.RefCount := lTuner.RefCount - 1;
+        // If the tuner is still using the same video sink, then check if we need to stop the tuner.
+        // If it's not using the same sink, then something else took over the tuner so we can just exit.
+        if lTuner.ContainsSink(aViewer.Sink) then
+        begin
+          lTuner.RefCount := lTuner.RefCount - 1;
 
-      if lTuner.RefCount = 0 then
-      begin
-        try
-          TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
-        finally
-          lTuner.RemoveSink;
+          if lTuner.RefCount = 0 then
+          begin
+            lTuner.RemoveSink;
 
-          lTuner.Channel := 0;
-          lTuner.Streaming := False;
+            lTuner.Channel := 0;
+            lTuner.Streaming := False;
+
+            TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, 0);
+          end;
         end;
+      finally
+        Unlock;
       end;
-    finally
-      Unlock;
     end;
   finally
     aViewer := TCetonViewer.Invalid;
@@ -988,6 +1027,8 @@ begin
     except
       on e: EVideoError do
         raise ECetonError.Create(e.Message);
+      on e: EVideoClosedError do
+        raise ECetonClosedError.Create(e.Message);
     end;
   end
   else
@@ -1155,7 +1196,7 @@ end;
 
 destructor TTuner.Destroy;
 begin
-  FreeAndNil(fSink);
+  RemoveSink;
 
   inherited;
 end;
@@ -1169,7 +1210,11 @@ end;
 
 procedure TTuner.RemoveSink;
 begin
-  fSink := nil;
+  if Assigned(fSink) then
+  begin
+    fSink.Close;
+    fSink := nil;
+  end;
 end;
 
 procedure TTuner.PacketReceived(const aPacketIndex: Integer;
@@ -1203,6 +1248,11 @@ begin
   fStats.Streaming := fStreaming;
 end;
 
+function TTuner.ContainsSink(const aSink: IRTPVideoSink): Boolean;
+begin
+  Result := Assigned(fSink) and Assigned(aSink) and ((fSink as IRTPVideoSink) = (aSink as IRTPVideoSink));
+end;
+
 { TCetonVideoStream }
 
 function TCetonVideoStream.ConverterRead(const aBuf: PByte;
@@ -1217,6 +1267,11 @@ begin
 
     Result := fReadBuffer.Read(aBuf^, aSize);
   except
+    if not Assigned(fConverterError) then
+    begin
+      fConverterError := Exception(AcquireExceptionObject);
+      fConverterErrorAddress := ExceptAddr;
+    end;
     Result := 0;
   end;
 end;
@@ -1230,6 +1285,11 @@ begin
     fWriteBuffer.Write(aBuf^, aSize);
     Result := aSize;
   except
+    if not Assigned(fConverterError) then
+    begin
+      fConverterError := Exception(AcquireExceptionObject);
+      fConverterErrorAddress := ExceptAddr;
+    end;
     Result := 0;
   end;
 end;
@@ -1265,9 +1325,12 @@ begin
   if Assigned(fConverter) then
   begin
     // Fill ring buffer by way of video converter
-    while fWriteBuffer.Size < Count do
+    while (fWriteBuffer.Size < Count) and (not Assigned(fConverterError)) do
       if not fConverter.Next then
         Break;
+
+    if Assigned(fConverterError) then
+      raise fConverterError at fConverterErrorAddress;
   end
   else
   begin

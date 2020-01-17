@@ -2,7 +2,7 @@ object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Ceton HDHomeRun Proxy'
-  ClientHeight = 729
+  ClientHeight = 718
   ClientWidth = 450
   Fill.Kind = Solid
   Position = ScreenCenter
@@ -15,19 +15,19 @@ object MainForm: TMainForm
   OnShow = FormShow
   DesignerMasterStyle = 0
   object VertScrollBox1: TVertScrollBox
-    Align = Client
+    Align = Contents
     Size.Width = 450.000000000000000000
-    Size.Height = 729.000000000000000000
+    Size.Height = 718.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
     Viewport.Width = 450.000000000000000000
-    Viewport.Height = 729.000000000000000000
+    Viewport.Height = 718.000000000000000000
     object gbGroup: TGroupBox
       Align = Top
       Padding.Left = 15.000000000000000000
       Padding.Top = 20.000000000000000000
       Padding.Right = 10.000000000000000000
-      Position.Y = 84.000000000000000000
+      Position.Y = 105.000000000000000000
       Size.Width = 450.000000000000000000
       Size.Height = 161.000000000000000000
       Size.PlatformDefault = False
@@ -77,14 +77,14 @@ object MainForm: TMainForm
     object gbSettings: TGroupBox
       Align = Top
       Size.Width = 450.000000000000000000
-      Size.Height = 84.000000000000000000
+      Size.Height = 105.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
       Text = 'Settings'
       TabOrder = 1
       object eCetonTunerAddress: TEdit
         Touch.InteractiveGestures = [LongTap, DoubleTap]
-        TabOrder = 1
+        TabOrder = 2
         Position.X = 130.000000000000000000
         Position.Y = 23.000000000000000000
         Size.Width = 143.000000000000000000
@@ -96,23 +96,39 @@ object MainForm: TMainForm
         Position.X = 15.000000000000000000
         Position.Y = 26.000000000000000000
         Text = 'Ceton tuner address:'
-        TabOrder = 3
+        TabOrder = 5
       end
       object Label2: TLabel
         Position.X = 15.000000000000000000
         Position.Y = 54.000000000000000000
         Text = 'Listen IP:'
-        TabOrder = 2
+        TabOrder = 4
       end
       object eListenIP: TEdit
         Touch.InteractiveGestures = [LongTap, DoubleTap]
-        TabOrder = 0
+        TabOrder = 1
         Position.X = 130.000000000000000000
         Position.Y = 51.000000000000000000
         Size.Width = 143.000000000000000000
         Size.Height = 22.000000000000000000
         Size.PlatformDefault = False
         OnChangeTracking = eListenIPChangeTracking
+      end
+      object Label3: TLabel
+        Position.X = 15.000000000000000000
+        Position.Y = 82.000000000000000000
+        Text = 'Listen HTTP Port:'
+        TabOrder = 3
+      end
+      object eListenHTTPPort: TEdit
+        Touch.InteractiveGestures = [LongTap, DoubleTap]
+        TabOrder = 0
+        Position.X = 130.000000000000000000
+        Position.Y = 79.000000000000000000
+        Size.Width = 143.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
+        OnChangeTracking = eListenHTTPPortChangeTracking
       end
     end
     object gbStats: TGroupBox
@@ -121,9 +137,9 @@ object MainForm: TMainForm
       Padding.Top = 20.000000000000000000
       Padding.Right = 10.000000000000000000
       Padding.Bottom = 10.000000000000000000
-      Position.Y = 253.000000000000000000
+      Position.Y = 274.000000000000000000
       Size.Width = 450.000000000000000000
-      Size.Height = 364.000000000000000000
+      Size.Height = 382.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
       Text = 'Statistics'
@@ -136,7 +152,7 @@ object MainForm: TMainForm
         EditMode = True
         Align = Client
         Size.Width = 425.000000000000000000
-        Size.Height = 334.000000000000000000
+        Size.Height = 352.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 1
       end
@@ -145,7 +161,7 @@ object MainForm: TMainForm
       Align = Top
       Cursor = crVSplit
       MinSize = 20.000000000000000000
-      Position.Y = 245.000000000000000000
+      Position.Y = 266.000000000000000000
       Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False
@@ -154,7 +170,7 @@ object MainForm: TMainForm
       Align = Top
       Cursor = crVSplit
       MinSize = 20.000000000000000000
-      Position.Y = 617.000000000000000000
+      Position.Y = 656.000000000000000000
       Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False

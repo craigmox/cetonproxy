@@ -14,6 +14,7 @@ uses
   REST.Json.Types,
   REST.JsonReflect,
 
+  HDHR,
   Ceton;
 
 type
@@ -21,6 +22,7 @@ type
   private
     fDeviceID: UInt32;
     fCeton: TCetonConfig;
+    fHTTPPort: Integer;
 
     procedure CreateDeviceID;
   public
@@ -34,6 +36,7 @@ type
 
     property Ceton: TCetonConfig read fCeton;
     property DeviceID: UInt32 read fDeviceID write fDeviceID;
+    property HTTPPort: Integer read fHTTPPort write fHTTPPort;
   end;
 
   TProxyServiceModule = class(TDataModule)
@@ -43,6 +46,8 @@ type
     { Private declarations }
     fConfig: TServiceConfig;
     fClient: TCetonClient;
+
+    function GetConfigPath: String;
 
     procedure Lock;
     procedure Unlock;
@@ -141,6 +146,8 @@ constructor TServiceConfig.Create;
 begin
   fCeton := TCetonConfig.Create;
 
+  fHTTPPort := HDHR_HTTP_PORT;
+
   CreateDeviceID;
 end;
 
@@ -175,7 +182,7 @@ begin
   fClient := TCetonClient.Create;
 
   try
-    lJSON := TFile.ReadAllText(TPath.GetHomePath + TPath.DirectorySeparatorChar + 'cetonproxy' + TPath.DirectorySeparatorChar + 'config.js');
+    lJSON := TFile.ReadAllText(GetConfigPath + 'config.js');
   except
     // Ignore
   end;
@@ -192,8 +199,8 @@ begin
 
   FreeAndNil(fClient);
 
-  ForceDirectories(TPath.GetHomePath + TPath.DirectorySeparatorChar + 'cetonproxy');
-  TFile.WriteAllText(TPath.GetHomePath + TPath.DirectorySeparatorChar + 'cetonproxy' + TPath.DirectorySeparatorChar + 'config.js', fConfig.ToJSON);
+  ForceDirectories(GetConfigPath);
+  TFile.WriteAllText(GetConfigPath + 'config.js', fConfig.ToJSON);
 
   FreeAndNil(fConfig);
 end;
@@ -228,6 +235,14 @@ end;
 procedure TProxyServiceModule.Unlock;
 begin
   TMonitor.Exit(Self);
+end;
+
+function TProxyServiceModule.GetConfigPath: String;
+begin
+  if FindCmdLineSwitch('config', Result) then
+    Result := IncludeTrailingPathDelimiter(Result)
+  else
+    Result := TPath.GetHomePath + TPath.DirectorySeparatorChar + 'cetonproxy' + TPath.DirectorySeparatorChar;
 end;
 
 end.

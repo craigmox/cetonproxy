@@ -9,6 +9,7 @@ uses
   System.Classes,
   Winapi.ActiveX,
   FMX.Types,
+  FMX.Dialogs,
 
   IdHTTPWebBrokerBridge,
   IdBaseComponent,
@@ -49,6 +50,9 @@ type
     procedure ServerException(AContext: TIdContext; AException: Exception);
 
     function GetActive: Boolean;
+    function GetClient: TCetonClient;
+
+    property Client: TCetonClient read GetClient;
   public
     { Public declarations }
 
@@ -114,33 +118,38 @@ var
 begin
   if not fServer.Active then
   begin
-    lConfig := TServiceConfig.Create;
     try
-      lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
-      GetConfig(lConfig);
+      lConfig := TServiceConfig.Create;
+      try
+        lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
+        GetConfig(lConfig);
 
-      fServer.Bindings.Clear;
-      with fServer.Bindings.Add do
-      begin
-        IP := lConfig.Ceton.ListenIP;
-        Port := 80;
-      end;
-      with fServer.Bindings.Add do
-      begin
-        IP := lConfig.Ceton.ListenIP;
-        Port := HDHR_HTTP_PORT;
-      end;
-      fServer.Active := True;
+        fServer.Bindings.Clear;
+        // Needed by NextPVR to find lineup.xml
+        with fServer.Bindings.Add do
+        begin
+          IP := lConfig.Ceton.ListenIP;
+          Port := 80;
+        end;
+        with fServer.Bindings.Add do
+        begin
+          IP := lConfig.Ceton.ListenIP;
+          Port := lConfig.HTTPPort;
+        end;
+        fServer.Active := True;
 
-      fDiscoveryServer.Bindings.Clear;
-      with fDiscoveryServer.Bindings.Add do
-      begin
-        IP := lConfig.Ceton.ListenIP;
-        Port := HDHR_DISCOVERY_PORT;
+        fDiscoveryServer.Bindings.Clear;
+        with fDiscoveryServer.Bindings.Add do
+        begin
+          IP := lConfig.Ceton.ListenIP;
+          Port := HDHR_DISCOVERY_PORT;
+        end;
+        fDiscoveryServer.Active := True;
+      finally
+        lConfig.Free;
       end;
-      fDiscoveryServer.Active := True;
-    finally
-      lConfig.Free;
+    except
+      //
     end;
   end;
 end;
@@ -193,7 +202,7 @@ begin
 
                 lDiscovery.DeviceID := lConfig.DeviceID;
                 lDiscovery.TunerCount := 6;
-                lDiscovery.BaseURL := AnsiString(Format('http://%s:80', [lConfig.Ceton.ListenIP]));
+                lDiscovery.BaseURL := AnsiString(Format('http://%s:%d', [Client.ListenIP, lConfig.HTTPPort]));
                 lDiscovery.LineupURL := AnsiString(Format('%s/lineup.json', [lDiscovery.BaseURL]));
               finally
                 lConfig.Free;
@@ -216,6 +225,11 @@ end;
 procedure TProxyServerModule.GetConfig(const aConfig: TServiceConfig);
 begin
   ProxyServiceModule.GetConfig(aConfig);
+end;
+
+function TProxyServerModule.GetClient: TCetonClient;
+begin
+  Result := ProxyServiceModule.Client;
 end;
 
 end.

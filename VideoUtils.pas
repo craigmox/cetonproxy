@@ -144,6 +144,10 @@ begin
     if not Assigned(lOutStream) then
       ErrorFmt('Failed allocating output stream', []);
 
+    lOutStream.id := lInStream.id;
+    lOutStream.time_base := lInStream.time_base;
+    lOutStream.avg_frame_rate := lInStream.avg_frame_rate;
+
     lRet := avcodec_parameters_copy(lOutStream.codecpar, lInCodecParams);
     if lRet < 0 then
       ErrorFmt('Failed to copy codec parameters', []);
@@ -231,7 +235,8 @@ begin
       fPacket.pos := -1;
   //    log_packet(ofmt_ctx, @pkt, 'out');
 
-      lRet := av_interleaved_write_frame(fOutputFormatContext, @fPacket);
+//      lRet := av_interleaved_write_frame(fOutputFormatContext, @fPacket);
+      lRet := av_write_frame(fOutputFormatContext, @fPacket);
       if lRet < 0 then
         ErrorFmt('Error muxing packet', []);
     finally

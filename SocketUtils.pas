@@ -19,6 +19,7 @@ uses
 
 type
   EVideoError = class(Exception);
+  EVideoClosedError = class(Exception);
 
   TRingBuffer = class
   private
@@ -91,6 +92,8 @@ type
     procedure RegisterReader(out aReader: TVideoReader);
     procedure UnregisterReader(var aReader: TVideoReader);
 
+    procedure Close;
+
     property Port: Integer read GetPort;
   end;
 
@@ -98,6 +101,7 @@ type
   private
     fStats: IVideoStats;
     fServer: TIdUDPServer;
+    fClosed: Boolean;
     fWriteEvent: TEvent;
 
     fLastHeader: TRTPHeader;
@@ -108,6 +112,7 @@ type
     fReaderPacketIndexes: TArray<Integer>;
 
     procedure TimeoutError;
+    procedure ClosedError;
   protected
     procedure Lock;
     procedure Unlock;
@@ -122,6 +127,8 @@ type
 
     procedure RegisterReader(out aReader: TVideoReader);
     procedure UnregisterReader(var aReader: TVideoReader);
+
+    procedure Close;
   public
     constructor Create(const aPacketSize, aPacketCount: Integer; const aStats: IVideoStats);
     destructor Destroy; override;
@@ -424,6 +431,11 @@ begin
   TMonitor.Exit(Self);
 end;
 
+procedure TRTPVideoSink.ClosedError;
+begin
+  raise EVideoClosedError.Create('Video stream closed');
+end;
+
 procedure TRTPVideoSink.TimeoutError;
 begin
   raise EVideoError.Create('Timeout waiting for video data');
@@ -477,6 +489,9 @@ begin
     finally
       Unlock;
     end;
+
+    if fClosed then
+      ClosedError;
 
     // Packet is not yet ready
     if fWriteEvent.WaitFor(aTimeoutMs) = wrTimeout then
@@ -540,9 +555,19 @@ begin
     end;
 
     if not Result then
+    begin
+      if fClosed then
+        ClosedError;
+
       if fWriteEvent.WaitFor(aTimeoutMs) = wrTimeout then
         Break;
+    end;
   until Result;
+end;
+
+procedure TRTPVideoSink.Close;
+begin
+  fClosed := True;
 end;
 
 end.

@@ -4,7 +4,6 @@ program cetonproxy;
 
 
 uses
-  FastMM4,
   FMX.Forms,
   Web.WebReq,
   IdHTTPWebBrokerBridge,

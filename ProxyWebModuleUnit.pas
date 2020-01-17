@@ -103,7 +103,7 @@ end;
 procedure TProxyWebModule.WebModuleDefaultAction(Sender: TObject;
   Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
 begin
-  Log.d('Received unknown request '+Request.PathInfo);
+  Log.d('Received unknown request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
 
 {  if (Request.InternalPathInfo = '') or (Request.InternalPathInfo = '/')then
     Response.Content := ReverseString.Content
@@ -126,7 +126,7 @@ begin
         lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
         GetConfig(lConfig);
 
-        lResponse.BaseURL := Format('http://%s:80', [Client.ListenIP]);
+        lResponse.BaseURL := Format('http://%s:%d', [Client.ListenIP, lConfig.HTTPPort]);
         lResponse.LineupURL := Format('%s/lineup.json', [lResponse.BaseURL]);
         lResponse.DeviceID := IntToHex(lConfig.DeviceID);
       finally
@@ -139,7 +139,7 @@ begin
       lResponse.Free;
     end;
 
-    Log.d('Received discover, Response: '+Response.Content);
+    Log.d('Received discover from %s, Response: %s', [Request.RemoteAddr, Response.Content]);
   except
     HandleException;
   end;
@@ -152,16 +152,19 @@ var
 begin
   Handled := True;
   try
-    Log.d('Received lineup.json request');
-
-    lLineup := TLineup.Create;
+    Log.d('Received lineup.json request from %s', [Request.RemoteAddr]);
     try
-      GetLineup(lLineup);
+      lLineup := TLineup.Create;
+      try
+        GetLineup(lLineup);
 
-      Response.ContentType := 'application/json';
-      Response.Content := lLineup.ToJSON;
+        Response.ContentType := 'application/json';
+        Response.Content := lLineup.ToJSON;
+      finally
+        lLineup.Free;
+      end;
     finally
-      lLineup.Free;
+      Log.d('Finished lineup.json request from %s', [Request.RemoteAddr]);
     end;
   except
     HandleException;
@@ -177,6 +180,7 @@ begin
   TIdHTTPAppChunkedResponse(Response).SendChunkedHeader;
 
   repeat
+    // If Create here
     lStream := TCetonVideoStream.Create(Client, aTuner, aChannel);
     try
       try
@@ -201,16 +205,19 @@ var
 begin
   Handled := True;
   try
-    Log.d('Received tune request '+Request.PathInfo);
-
-    lParts := Request.PathInfo.Split(['/'], TStringSplitOptions.ExcludeEmpty);
-    if (Length(lParts) >= 2) and (lParts[1].StartsWith('v',True)) then
-    begin
-      lChannel := StrToIntDef(lParts[1].Substring(1),0);
-      if lChannel > 0 then
+    Log.d('Received tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+    try
+      lParts := Request.PathInfo.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+      if (Length(lParts) >= 2) and (lParts[1].StartsWith('v',True)) then
       begin
-        SendTuneResponse(-1, lChannel, Response);
+        lChannel := StrToIntDef(lParts[1].Substring(1),0);
+        if lChannel > 0 then
+        begin
+          SendTuneResponse(-1, lChannel, Response);
+        end;
       end;
+    finally
+      Log.d('Finished tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     end;
   except
     HandleException;
@@ -250,16 +257,19 @@ var
 begin
   Handled := True;
   try
-    Log.d('Received lineup.xml request');
-
-    lLineup := TLineup.Create;
+    Log.d('Received lineup.xml request from %s', [Request.RemoteAddr]);
     try
-      GetLineup(lLineup);
+      lLineup := TLineup.Create;
+      try
+        GetLineup(lLineup);
 
-      Response.ContentType := 'application/xml';
-      Response.Content := lLineup.ToXML;
+        Response.ContentType := 'application/xml';
+        Response.Content := lLineup.ToXML;
+      finally
+        lLineup.Free;
+      end;
     finally
-      lLineup.Free;
+      Log.d('Finished lineup.json request from %s', [Request.RemoteAddr]);
     end;
   except
     HandleException;
@@ -305,17 +315,20 @@ var
 begin
   Handled := True;
   try
-    Log.d('Received tune request '+Request.PathInfo);
-
-    lParts := Request.PathInfo.Split(['/'], TStringSplitOptions.ExcludeEmpty);
-    if (Length(lParts) >= 2) and (lParts[0].StartsWith('tuner',True)) and (lParts[1].StartsWith('v',True)) then
-    begin
-      lTuner := StrToIntDef(lParts[0].Substring(5),-1);
-      lChannel := StrToIntDef(lParts[1].Substring(1),0);
-      if (lTuner > -1) and (lChannel > 0) then
+    Log.d('Received tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+    try
+      lParts := Request.PathInfo.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+      if (Length(lParts) >= 2) and (lParts[0].StartsWith('tuner',True)) and (lParts[1].StartsWith('v',True)) then
       begin
-        SendTuneResponse(lTuner, lChannel, Response);
+        lTuner := StrToIntDef(lParts[0].Substring(5),-1);
+        lChannel := StrToIntDef(lParts[1].Substring(1),0);
+        if (lTuner > -1) and (lChannel > 0) then
+        begin
+          SendTuneResponse(lTuner, lChannel, Response);
+        end;
       end;
+    finally
+      Log.d('Finished tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     end;
   except
     HandleException;

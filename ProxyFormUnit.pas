@@ -65,6 +65,8 @@ type
     btnRefreshChannels: TButton;
     lbStats: TListView;
     Splitter2: TSplitter;
+    Label3: TLabel;
+    eListenHTTPPort: TEdit;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
@@ -74,6 +76,7 @@ type
     procedure eListenIPChangeTracking(Sender: TObject);
     procedure eCetonTunerAddressChangeTracking(Sender: TObject);
     procedure btnRefreshChannelsClick(Sender: TObject);
+    procedure eListenHTTPPortChangeTracking(Sender: TObject);
   private
     { Private declarations }
     fConfig: TServiceConfig;
@@ -284,6 +287,7 @@ begin
   try
     eCetonTunerAddress.Text := fConfig.Ceton.TunerAddress;
     eListenIP.Text := fConfig.Ceton.ListenIP;
+    eListenHTTPPort.Text := IntToStr(fConfig.HTTPPort);
 
     FillChannels;
   finally
@@ -358,6 +362,15 @@ begin
   for i := 0 to High(lStatsArray) do
   begin
     lbStats.Items[i].Text := Format('%d. Channel: %d, Received: %d, Read: %d, Wait: %d', [i+1, lStatsArray[i].Channel, lStatsArray[i].PacketsReceived, lStatsArray[i].PacketsRead[0], lStatsArray[i].ReaderWait[0]]);
+  end;
+end;
+
+procedure TMainForm.eListenHTTPPortChangeTracking(Sender: TObject);
+begin
+  if not InterfaceUpdating then
+  begin
+    fConfig.HTTPPort := StrToIntDef(eListenHTTPPort.Text, HDHR_HTTP_PORT);
+    Save;
   end;
 end;
 
