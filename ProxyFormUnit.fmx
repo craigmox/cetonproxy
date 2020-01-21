@@ -29,7 +29,7 @@ object MainForm: TMainForm
       Padding.Right = 10.000000000000000000
       Position.Y = 105.000000000000000000
       Size.Width = 450.000000000000000000
-      Size.Height = 161.000000000000000000
+      Size.Height = 280.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
       Text = 'Channels'
@@ -37,7 +37,7 @@ object MainForm: TMainForm
       object btnEditChannels: TButton
         Anchors = [akLeft, akBottom]
         Position.X = 15.000000000000000000
-        Position.Y = 131.000000000000000000
+        Position.Y = 250.000000000000000000
         Size.Width = 106.000000000000000000
         Size.Height = 22.000000000000000000
         Size.PlatformDefault = False
@@ -50,7 +50,7 @@ object MainForm: TMainForm
         Enabled = False
         Margins.Bottom = 35.000000000000000000
         Size.Width = 425.000000000000000000
-        Size.Height = 106.000000000000000000
+        Size.Height = 225.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 2
         DisableFocusEffect = True
@@ -60,12 +60,12 @@ object MainForm: TMainForm
         ShowCheckboxes = True
         OnChangeCheck = lbChannelsChangeCheck
         Viewport.Width = 421.000000000000000000
-        Viewport.Height = 102.000000000000000000
+        Viewport.Height = 221.000000000000000000
       end
       object btnRefreshChannels: TButton
         Anchors = [akRight, akBottom]
         Position.X = 335.000000000000000000
-        Position.Y = 131.000000000000000000
+        Position.Y = 250.000000000000000000
         Size.Width = 106.000000000000000000
         Size.Height = 22.000000000000000000
         Size.PlatformDefault = False
@@ -137,9 +137,9 @@ object MainForm: TMainForm
       Padding.Top = 20.000000000000000000
       Padding.Right = 10.000000000000000000
       Padding.Bottom = 10.000000000000000000
-      Position.Y = 274.000000000000000000
+      Position.Y = 393.000000000000000000
       Size.Width = 450.000000000000000000
-      Size.Height = 382.000000000000000000
+      Size.Height = 311.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
       Text = 'Statistics'
@@ -152,7 +152,7 @@ object MainForm: TMainForm
         EditMode = True
         Align = Client
         Size.Width = 425.000000000000000000
-        Size.Height = 352.000000000000000000
+        Size.Height = 281.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 1
       end
@@ -161,7 +161,7 @@ object MainForm: TMainForm
       Align = Top
       Cursor = crVSplit
       MinSize = 20.000000000000000000
-      Position.Y = 266.000000000000000000
+      Position.Y = 385.000000000000000000
       Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False
@@ -170,7 +170,7 @@ object MainForm: TMainForm
       Align = Top
       Cursor = crVSplit
       MinSize = 20.000000000000000000
-      Position.Y = 656.000000000000000000
+      Position.Y = 704.000000000000000000
       Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False

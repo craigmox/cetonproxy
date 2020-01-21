@@ -26,6 +26,10 @@ uses
   FMX.Layouts,
   FMX.ListBox,
   FMX.Utils,
+  FMX.ListView.Types,
+  FMX.ListView.Appearances,
+  FMX.ListView.Adapters.Base,
+  FMX.ListView,
   REST.json,
   REST.Client,
 
@@ -34,21 +38,22 @@ uses
   SocketUtils,
 
   ProxyServiceModuleUnit,
-  ProxyServerModuleUnit, FMX.ListView.Types, FMX.ListView.Appearances,
-  FMX.ListView.Adapters.Base, FMX.ListView;
+  ProxyServerModuleUnit;
 
 type
   TChannelListBoxItem = class(TListBoxItem)
   private
     fCheck: TCheckBox;
+    fChannel: Integer;
     procedure DoCheckMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Single);
   protected
     procedure ApplyStyle; override;
     procedure FreeStyle; override;
   public
+    property Channel: Integer read fChannel write fChannel;
   end;
 
-  TMainForm = class(TForm)
+  TMainForm = class(TForm, IServiceConfigEvents)
     lbChannels: TListBox;
     btnEditChannels: TButton;
     Splitter1: TSplitter;
@@ -79,25 +84,29 @@ type
     procedure eListenHTTPPortChangeTracking(Sender: TObject);
   private
     { Private declarations }
-    fConfig: TServiceConfig;
+    fConfigManager: IServiceConfigManager;
 
+    fEditingChannels: Boolean;
     fInterfaceUpdateCount: Integer;
     fSave: Boolean;
+    fSaveSections: TServiceConfigSections;
 
     function GetClient: TCetonClient;
-    procedure GetConfig;
-    procedure SetConfig;
 
     procedure BeginInterfaceUpdate;
     procedure EndInterfaceUpdate;
     function InterfaceUpdating: Boolean;
-    procedure Save;
+    procedure Save(const aSections: TServiceConfigSections);
 
     procedure UpdateInterface;
     procedure FillChannels;
     procedure FillTunerStatistics;
 
+    property ConfigManager: IServiceConfigManager read fConfigManager;
     property Client: TCetonClient read GetClient;
+  protected
+    // IServiceConfigEvents
+    procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
   public
     { Public declarations }
   end;
@@ -173,7 +182,8 @@ end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 begin
-  fConfig := TServiceConfig.Create;
+  fConfigManager := ProxyServiceModule.ConfigManager;
+  fConfigManager.AddListener(Self);
 
   ProxyServerModule.StartServer;
 end;
@@ -185,25 +195,39 @@ end;
 
 procedure TMainForm.FillChannels;
 var
-  lListItem: TListBoxItem;
+  lListItem: TChannelListBoxItem;
   i: Integer;
+  lConfig: TServiceConfig;
+  lChannelMap: TChannelMap;
 begin
-  if not (TChannelMapSection.Items in fConfig.Ceton.ChannelMap.Exclude) then
+  if fEditingChannels then
   begin
-    lbChannels.BeginUpdate;
+    lChannelMap := TChannelMap.Create;
     try
-      lbChannels.Clear;
-      for i := 0 to fConfig.Ceton.ChannelMap.Count-1 do
-      begin
-        lListItem := TChannelListBoxItem.Create(lbChannels);
-        lListItem.Parent := lbChannels;
-        lListItem.Stored := False;
-        lListItem.Text := Format('%d. %s', [fConfig.Ceton.ChannelMap[i].Channel, fConfig.Ceton.ChannelMap[i].Name]);
-        lListItem.Data := fConfig.Ceton.ChannelMap[i];
-        lListItem.IsChecked := fConfig.Ceton.ChannelMap[i].Visible;
+      ConfigManager.LockConfig(lConfig);
+      try
+        lChannelMap.Assign(lConfig.Ceton.ChannelMap, False);
+      finally
+        ConfigManager.UnlockConfig(lConfig);
+      end;
+
+      lbChannels.BeginUpdate;
+      try
+        lbChannels.Clear;
+        for i := 0 to lChannelMap.Count-1 do
+        begin
+          lListItem := TChannelListBoxItem.Create(lbChannels);
+          lListItem.Parent := lbChannels;
+          lListItem.Stored := False;
+          lListItem.Text := Format('%d. %s', [lChannelMap[i].Channel, lChannelMap[i].Name]);
+          lListItem.Channel := lChannelMap[i].Channel;
+          lListItem.IsChecked := lChannelMap[i].Visible;
+        end;
+      finally
+        lbChannels.EndUpdate;
       end;
     finally
-      lbChannels.EndUpdate;
+      lChannelMap.Free;
     end;
 
     lbChannels.Enabled := True;
@@ -214,21 +238,34 @@ end;
 
 procedure TMainForm.FormDestroy(Sender: TObject);
 begin
-  ProxyServerModule.StopServer;
+  fConfigManager.RemoveListener(Self);
 
-  fConfig.Free;
+  ProxyServerModule.StopServer;
 end;
 
 procedure TMainForm.lbChannelsChangeCheck(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+  i: Integer;
 begin
   if not InterfaceUpdating then
   begin
-    TChannelMapItem(TListBoxItem(Sender).Data).Visible := TListBoxItem(Sender).IsChecked;
-    Save;
+    ConfigManager.LockConfig(lConfig);
+    try
+      i := lConfig.Ceton.ChannelMap.IndexOf(TChannelListBoxItem(Sender).Channel);
+      if i > -1 then
+      begin
+        lConfig.Ceton.ChannelMap[i].Visible := TListBoxItem(Sender).IsChecked;
+      end;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Channels]);
   end;
 end;
 
-procedure TMainForm.GetConfig;
+{procedure TMainForm.GetConfig;
 var
   lOldConfig, lNewConfig: TServiceConfig;
 begin
@@ -254,12 +291,7 @@ begin
     lNewConfig.Free;
     lOldConfig.Free;
   end;
-end;
-
-procedure TMainForm.SetConfig;
-begin
-  ProxyServiceModule.SetConfig(fConfig);
-end;
+end;}
 
 procedure TMainForm.BeginInterfaceUpdate;
 begin
@@ -271,9 +303,10 @@ begin
   Dec(fInterfaceUpdateCount);
 end;
 
-procedure TMainForm.Save;
+procedure TMainForm.Save(const aSections: TServiceConfigSections);
 begin
   fSave := True;
+  fSaveSections := fSaveSections + aSections;
 end;
 
 function TMainForm.InterfaceUpdating: Boolean;
@@ -282,12 +315,19 @@ begin
 end;
 
 procedure TMainForm.UpdateInterface;
+var
+  lConfig: TServiceConfig;
 begin
   BeginInterfaceUpdate;
   try
-    eCetonTunerAddress.Text := fConfig.Ceton.TunerAddress;
-    eListenIP.Text := fConfig.Ceton.ListenIP;
-    eListenHTTPPort.Text := IntToStr(fConfig.HTTPPort);
+    ConfigManager.LockConfig(lConfig);
+    try
+      eCetonTunerAddress.Text := lConfig.Ceton.TunerAddress;
+      eListenIP.Text := lConfig.Ceton.ListenIP;
+      eListenHTTPPort.Text := IntToStr(lConfig.HTTPPort);
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
 
     FillChannels;
   finally
@@ -296,19 +336,56 @@ begin
 end;
 
 procedure TMainForm.btnEditChannelsClick(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+  lRequestChannels: Boolean;
+  lCetonConfig: TCetonConfig;
 begin
-  fConfig.Ceton.ChannelMap.Exclude := [];
-  ProxyServiceModule.GetConfig(fConfig);
+  fEditingChannels := True;
+
+  ConfigManager.LockConfig(lConfig);
+  try
+    lRequestChannels := lConfig.Ceton.ChannelMap.Count = 0;
+  finally
+    ConfigManager.UnlockConfig(lConfig);
+  end;
+
+  if lRequestChannels then
+  begin
+    Client.RequestChannelMap;
+
+    lCetonConfig := TCetonConfig.Create;
+    try
+      Client.GetConfig(lCetonConfig);
+
+      ConfigManager.LockConfig(lConfig);
+      try
+       lConfig.Ceton.ChannelMap.Assign(lCetonConfig.ChannelMap, False);
+      finally
+        ConfigManager.UnlockConfig(lConfig);
+      end;
+    finally
+      lCetonConfig.Free;
+    end;
+
+    ConfigManager.Changed(Self, [TServiceConfigSection.Channels]);
+  end;
 
   FillChannels;
 end;
 
 procedure TMainForm.SaveTimerTimer(Sender: TObject);
+var
+  lSections: TServiceConfigSections;
 begin
   if fSave then
   begin
+    lSections := fSaveSections;
+
     fSave := False;
-    SetConfig;
+    fSaveSections := [];
+
+    ConfigManager.Changed(Self, lSections);
   end;
 
   FillTunerStatistics;
@@ -316,34 +393,67 @@ end;
 
 procedure TMainForm.FormShow(Sender: TObject);
 begin
-  GetConfig;
   UpdateInterface;
 end;
 
 procedure TMainForm.eListenIPChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
 begin
   if not InterfaceUpdating then
   begin
-    fConfig.Ceton.ListenIP := eListenIP.Text;
-    Save;
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.Ceton.ListenIP := eListenIP.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
   end;
 end;
 
 procedure TMainForm.eCetonTunerAddressChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
 begin
   if not InterfaceUpdating then
   begin
-    fConfig.Ceton.TunerAddress := eCetonTunerAddress.Text;
-    Save;
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.Ceton.TunerAddress := eCetonTunerAddress.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
   end;
 end;
 
 procedure TMainForm.btnRefreshChannelsClick(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+  lCetonConfig: TCetonConfig;
 begin
+  fEditingChannels := True;
+
   Client.RequestChannelMap;
 
-  fConfig.Ceton.ChannelMap.Exclude := [];
-  ProxyServiceModule.GetConfig(fConfig);
+  lCetonConfig := TCetonConfig.Create;
+  try
+    Client.GetConfig(lCetonConfig);
+
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.Ceton.ChannelMap.Assign(lCetonConfig.ChannelMap, False);
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+  finally
+    lCetonConfig.Free;
+  end;
+
+  ConfigManager.Changed(Self, [TServiceConfigSection.Channels]);
 
   FillChannels;
 end;
@@ -361,16 +471,42 @@ begin
 
   for i := 0 to High(lStatsArray) do
   begin
-    lbStats.Items[i].Text := Format('%d. Channel: %d, Received: %d, Read: %d, Wait: %d', [i+1, lStatsArray[i].Channel, lStatsArray[i].PacketsReceived, lStatsArray[i].PacketsRead[0], lStatsArray[i].ReaderWait[0]]);
+    lbStats.Items[i].Text := Format('%d. Channel: %d, From tuner: %d, To client: %d', [i+1, lStatsArray[i].Channel, lStatsArray[i].PacketsReceived, lStatsArray[i].PacketsRead[0]]);
   end;
 end;
 
 procedure TMainForm.eListenHTTPPortChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
 begin
   if not InterfaceUpdating then
   begin
-    fConfig.HTTPPort := StrToIntDef(eListenHTTPPort.Text, HDHR_HTTP_PORT);
-    Save;
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.HTTPPort := StrToIntDef(eListenHTTPPort.Text, HDHR_HTTP_PORT);
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.Changed(const aSender: TObject;
+  const aSections: TServiceConfigSections);
+begin
+  if aSender <> Self then
+  begin
+    TThread.ForceQueue(nil,
+      procedure()
+      begin
+        if TServiceConfigSection.Channels in aSections then
+        begin
+          fEditingChannels := False;
+        end;
+
+        UpdateInterface;
+      end);
   end;
 end;
 

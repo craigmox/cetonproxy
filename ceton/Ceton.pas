@@ -37,6 +37,9 @@ type
 
   TChannelMap = class;
 
+  TCetonConfigSection = (Channels);
+  TCetonConfigSections = set of TCetonConfigSection;
+
   TCetonConfig = class(TPersistent)
   private
     fChannelMap: TChannelMap;
@@ -46,7 +49,9 @@ type
     constructor Create;
     destructor Destroy; override;
 
-    procedure AssignTo(Dest: TPersistent); override;
+    procedure AssignTo(Dest: TPersistent; const aExcludeSections: TCetonConfigSections); reintroduce; overload;
+    procedure AssignTo(Dest: TPersistent); reintroduce; overload; override;
+    procedure Assign(Src: TPersistent; const aExcludeSections: TCetonConfigSections); reintroduce; overload;
 
     property ListenIP: String read fListenIP write fListenIP;
     property TunerAddress: String read fTunerAddress write fTunerAddress;
@@ -78,16 +83,12 @@ type
     property Visible: Boolean read fVisible write fVisible;
   end;
 
-  TChannelMapSection = (Items);
-  TChannelMapSections = set of TChannelMapSection;
-
   TChannelMap = class
   private
     [JSONOwned(False)]
     fList: TObjectList<TChannelMapItem>;
     fRequestDateTime: TDateTime;
     [JSONMarshalled(False)]
-    fExclude: TChannelMapSections;
     function GetCount: Integer;
     function GetItem(const aIndex: Integer): TChannelMapItem;
     function ChannelMapItemComparison(const Left,
@@ -104,7 +105,7 @@ type
     procedure CopyFromXML(const aXML: String);
     procedure CopyFromHTML(const aHTML: String);
 
-    procedure Assign(const aChannelMap: TChannelMap);
+    procedure Assign(const aChannelMap: TChannelMap; const aExcludeItems: Boolean);
     procedure ApplyConfig(const aChannelMap: TChannelMap);
 
     function Expired(const aDays: Single): Boolean;
@@ -113,8 +114,6 @@ type
     property Items[const aIndex: Integer]: TChannelMapItem read GetItem; default;
 
     property RequestDateTime: TDateTime read fRequestDateTime write fRequestDateTime;
-
-    property Exclude: TChannelMapSections read fExclude write fExclude;
   end;
 
   TChannelMapRequest = class(TCustomRESTRequest)
@@ -280,12 +279,14 @@ type
     procedure Lock;
     procedure Unlock;
 
+    procedure NeedClient;
+
     function GetListenIP: String;
   public
     constructor Create;
     destructor Destroy; override;
 
-    procedure SetConfig(const aConfig: TCetonConfig);
+    procedure AssignConfig(const aConfig: TCetonConfig; const aExcludeSections: TCetonConfigSections);
     procedure GetConfig(const aConfig: TCetonConfig);
 
     function TryGetChannel(const aNumber: Integer; const aChannel: TChannelMapItem): Boolean;
@@ -494,11 +495,11 @@ begin
   fList.Clear;
 end;
 
-procedure TChannelMap.Assign(const aChannelMap: TChannelMap);
+procedure TChannelMap.Assign(const aChannelMap: TChannelMap; const aExcludeItems: Boolean);
 var
   i: Integer;
 begin
-  if not (TChannelMapSection.Items in aChannelMap.Exclude + fExclude) then
+  if not aExcludeItems then
   begin
     Clear;
     for i := 0 to aChannelMap.Count-1 do
@@ -512,10 +513,10 @@ var
   i: Integer;
   lDestIndex: Integer;
 begin
-  lDestIndex := 0;
+  lDestIndex := -1;
   for i := 0 to aChannelMap.Count-1 do
   begin
-    if (lDestIndex = -1) or (aChannelMap[i].Channel <> fList[lDestIndex].Channel) then
+    if (lDestIndex = -1) or (lDestIndex >= fList.Count) or (aChannelMap[i].Channel <> fList[lDestIndex].Channel) then
       lDestIndex := IndexOf(aChannelMap[i].Channel);
     if lDestIndex <> -1 then
     begin
@@ -564,7 +565,7 @@ var
 begin
   lChannelMap := TChannelMap.Create;
   try
-    lChannelMap.Assign(aChannelMap);
+    lChannelMap.Assign(aChannelMap, False);
     aChannelMap.Clear;
 
     lRequest := TChannelMapRequest.Create(nil);
@@ -833,6 +834,8 @@ procedure TCetonClient.RequestChannelMap;
 begin
   Lock;
   try
+    NeedClient;
+
     TREST.RequestChannelMap(fClient, fConfig.ChannelMap);
   finally
     Unlock;
@@ -852,6 +855,8 @@ begin
   try
     Lock;
     try
+      NeedClient;
+
       aViewer.TunerIndex := aTuner;
       if aViewer.TunerIndex < 0 then
       begin
@@ -969,6 +974,8 @@ begin
     begin
       Lock;
       try
+        NeedClient;
+
         lTuner := fTunerList[aViewer.TunerIndex];
 
         aViewer.Sink.UnregisterReader(aViewer.Reader);
@@ -1045,21 +1052,21 @@ begin
   TMonitor.Exit(Self);
 end;
 
-procedure TCetonClient.SetConfig(const aConfig: TCetonConfig);
+procedure TCetonClient.AssignConfig(const aConfig: TCetonConfig; const aExcludeSections: TCetonConfigSections);
 begin
   Lock;
   try
     if fConfig.TunerAddress <> aConfig.TunerAddress then
     begin
       FreeAndNil(fClient);
-      fConfig.Assign(aConfig);
+      fConfig.Assign(aConfig, aExcludeSections);
       fClient := TRESTClient.Create(Format('http://%s', [fConfig.TunerAddress]));
 
       // TODO: Request tuner count from Ceton
       fTunerList.Count := 6;
     end
     else
-      fConfig.Assign(aConfig);
+      fConfig.Assign(aConfig, aExcludeSections);
   finally
     Unlock;
   end;
@@ -1106,6 +1113,12 @@ begin
   finally
     Unlock;
   end;
+end;
+
+procedure TCetonClient.NeedClient;
+begin
+  if not Assigned(fClient) then
+    raise ECetonError.Create('Tuner address has not been configured');
 end;
 
 { TStartStopStreamRequest }
@@ -1404,6 +1417,12 @@ begin
 end;
 
 procedure TCetonConfig.AssignTo(Dest: TPersistent);
+begin
+  AssignTo(Dest, []);
+end;
+
+procedure TCetonConfig.AssignTo(Dest: TPersistent;
+  const aExcludeSections: TCetonConfigSections);
 var
   lDest: TCetonConfig;
 begin
@@ -1411,12 +1430,21 @@ begin
   begin
     lDest := TCetonConfig(Dest);
 
-    lDest.fChannelMap.Assign(fChannelMap);
+    lDest.fChannelMap.Assign(fChannelMap, TCetonConfigSection.Channels in aExcludeSections);
     lDest.fTunerAddress := fTunerAddress;
     lDest.fListenIP := fListenIP;
   end
   else
-    inherited;
+    inherited AssignTo(Dest);
+end;
+
+procedure TCetonConfig.Assign(Src: TPersistent;
+  const aExcludeSections: TCetonConfigSections);
+begin
+  if Assigned(Src) and (Src is TCetonConfig) then
+    TCetonConfig(Src).AssignTo(Self, aExcludeSections)
+  else
+    inherited Assign(Src);
 end;
 
 { TCetonViewer }

@@ -2,12 +2,15 @@ unit ProxyServiceModuleUnit;
 
 interface
 
+{$SCOPEDENUMS ON}
+
 uses
   System.SysUtils,
   System.Classes,
   System.IOUtils,
   System.JSON,
   System.DateUtils,
+  System.Generics.Collections,
 
   REST.Types,
   REST.Json,
@@ -18,6 +21,9 @@ uses
   Ceton;
 
 type
+  TServiceConfigSection = (Channels, Other);
+  TServiceConfigSections = set of TServiceConfigSection;
+
   TServiceConfig = class(TPersistent)
   private
     fDeviceID: UInt32;
@@ -39,23 +45,58 @@ type
     property HTTPPort: Integer read fHTTPPort write fHTTPPort;
   end;
 
-  TProxyServiceModule = class(TDataModule)
+  IServiceConfigEvents = interface
+    ['{E51631F5-FC88-4FEC-BCF6-9A0F5616CE79}']
+    procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+  end;
+
+  IServiceConfigManager = interface
+    ['{4393C786-9DE0-42DE-BE36-21EA00CFBE70}']
+    procedure LockConfig(out aConfig: TServiceConfig);
+    procedure UnlockConfig(var aConfig: TServiceConfig);
+
+    procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+
+    procedure AddListener(const aListener: IServiceConfigEvents);
+    procedure RemoveListener(const aListener: IServiceConfigEvents);
+  end;
+
+  TServiceConfigManager = class(TInterfacedObject, IServiceConfigManager)
+  private
+    fConfig: TServiceConfig;
+    fEventListeners: TList<IServiceConfigEvents>;
+
+    procedure Lock;
+    procedure Unlock;
+  protected
+    // IServiceConfigManager
+    procedure LockConfig(out aConfig: TServiceConfig);
+    procedure UnlockConfig(var aConfig: TServiceConfig);
+
+    procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+
+    procedure AddListener(const aListener: IServiceConfigEvents);
+    procedure RemoveListener(const aListener: IServiceConfigEvents);
+  public
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+  TProxyServiceModule = class(TDataModule, IServiceConfigEvents)
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
   private
     { Private declarations }
-    fConfig: TServiceConfig;
+    fConfigManager: IServiceConfigManager;
     fClient: TCetonClient;
 
     function GetConfigPath: String;
-
-    procedure Lock;
-    procedure Unlock;
+  protected
+    // IServiceConfigEvents
+    procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
   public
     { Public declarations }
-    procedure GetConfig(const aConfig: TServiceConfig);
-    procedure SetConfig(const aConfig: TServiceConfig);
-
+    property ConfigManager: IServiceConfigManager read fConfigManager;
     property Client: TCetonClient read fClient;
   end;
 
@@ -168,9 +209,77 @@ begin
 
     lDest.fCeton.Assign(fCeton);
     lDest.fDeviceID := fDeviceID;
+    lDest.fHTTPPort := fHTTPPort;
   end
   else
     inherited;
+end;
+
+
+{ TServiceConfigManager }
+
+constructor TServiceConfigManager.Create;
+begin
+  fConfig := TServiceConfig.Create;
+  fEventListeners := TList<IServiceConfigEvents>.Create;
+end;
+
+procedure TServiceConfigManager.Unlock;
+begin
+  System.TMonitor.Exit(Self);
+end;
+
+procedure TServiceConfigManager.LockConfig(out aConfig: TServiceConfig);
+begin
+  Lock;
+  aConfig := fConfig;
+end;
+
+procedure TServiceConfigManager.Lock;
+begin
+  System.TMonitor.Enter(Self);
+end;
+
+procedure TServiceConfigManager.Changed(const aSender: TObject;
+  const aSections: TServiceConfigSections);
+var
+  i: Integer;
+begin
+  Lock;
+  try
+    for i := 0 to fEventListeners.Count-1 do
+    begin
+      fEventListeners[i].Changed(aSender, aSections);
+    end;
+  finally
+    Unlock;
+  end;
+end;
+
+procedure TServiceConfigManager.AddListener(
+  const aListener: IServiceConfigEvents);
+begin
+  fEventListeners.Add(aListener as IServiceConfigEvents);
+end;
+
+procedure TServiceConfigManager.RemoveListener(
+  const aListener: IServiceConfigEvents);
+begin
+  fEventListeners.Remove(aListener as IServiceConfigEvents);
+end;
+
+destructor TServiceConfigManager.Destroy;
+begin
+  fConfig.Free;
+  fEventListeners.Free;
+
+  inherited;
+end;
+
+procedure TServiceConfigManager.UnlockConfig(var aConfig: TServiceConfig);
+begin
+  aConfig := nil;
+  Unlock;
 end;
 
 { TProxyServiceModule }
@@ -178,7 +287,10 @@ end;
 procedure TProxyServiceModule.DataModuleCreate(Sender: TObject);
 var
   lJSON: String;
+  lConfig, lTempConfig: TServiceConfig;
 begin
+  fConfigManager := TServiceConfigManager.Create;
+
   fClient := TCetonClient.Create;
 
   try
@@ -186,55 +298,38 @@ begin
   except
     // Ignore
   end;
-  fConfig := TServiceConfig.FromJSON(lJSON);
+  lTempConfig := TServiceConfig.FromJSON(lJSON);
+  try
+    fConfigManager.LockConfig(lConfig);
+    try
+      lConfig.Assign(lTempConfig);
+    finally
+      fConfigManager.UnlockConfig(lConfig);
+    end;
 
-  fConfig.Ceton.TunerAddress := '192.168.1.132';
+    fClient.AssignConfig(lTempConfig.Ceton, []);
+  finally
+    lTempConfig.Free;
+  end;
 
-  fClient.SetConfig(fConfig.Ceton);
+  fConfigManager.AddListener(Self);
 end;
 
 procedure TProxyServiceModule.DataModuleDestroy(Sender: TObject);
+var
+  lConfig: TServiceConfig;
 begin
-  Client.GetConfig(fConfig.Ceton);
+  fConfigManager.RemoveListener(Self);
 
-  FreeAndNil(fClient);
+  fClient.Free;
 
-  ForceDirectories(GetConfigPath);
-  TFile.WriteAllText(GetConfigPath + 'config.js', fConfig.ToJSON);
-
-  FreeAndNil(fConfig);
-end;
-
-procedure TProxyServiceModule.GetConfig(const aConfig: TServiceConfig);
-begin
-  Lock;
+  fConfigManager.LockConfig(lConfig);
   try
-    aConfig.Assign(fConfig);
-    Client.GetConfig(aConfig.Ceton);
+    ForceDirectories(GetConfigPath);
+    TFile.WriteAllText(GetConfigPath + 'config.js', lConfig.ToJSON);
   finally
-    Unlock;
+    fConfigManager.UnlockConfig(lConfig);
   end;
-end;
-
-procedure TProxyServiceModule.SetConfig(const aConfig: TServiceConfig);
-begin
-  Lock;
-  try
-    fConfig.Assign(aConfig);
-    Client.SetConfig(fConfig.Ceton);
-  finally
-    Unlock;
-  end;
-end;
-
-procedure TProxyServiceModule.Lock;
-begin
-  TMonitor.Enter(Self);
-end;
-
-procedure TProxyServiceModule.Unlock;
-begin
-  TMonitor.Exit(Self);
 end;
 
 function TProxyServiceModule.GetConfigPath: String;
@@ -243,6 +338,41 @@ begin
     Result := IncludeTrailingPathDelimiter(Result)
   else
     Result := TPath.GetHomePath + TPath.DirectorySeparatorChar + 'cetonproxy' + TPath.DirectorySeparatorChar;
+end;
+
+procedure TProxyServiceModule.Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+begin
+  // If anything changes the config (besides the TCetonClient itself), then update the
+  // client with the latest config
+  if aSender <> Client then
+  begin
+    TThread.ForceQueue(nil,
+      procedure()
+      var
+        lCetonConfig: TCetonConfig;
+        lConfig: TServiceConfig;
+        lExcludeCetonSections: TCetonConfigSections;
+      begin
+        lCetonConfig := TCetonConfig.Create;
+        try
+          // Don't copy channels from config manager if we don't have to
+          lExcludeCetonSections := [];
+          if not (TServiceConfigSection.Channels in aSections) then
+            lExcludeCetonSections := lExcludeCetonSections + [TCetonConfigSection.Channels];
+
+          ConfigManager.LockConfig(lConfig);
+          try
+            lCetonConfig.Assign(lConfig.Ceton, lExcludeCetonSections);
+          finally
+            ConfigManager.UnlockConfig(lConfig);
+          end;
+
+          Client.AssignConfig(lCetonConfig, lExcludeCetonSections);
+        finally
+          lCetonConfig.Free;
+        end;
+      end);
+  end;
 end;
 
 end.

@@ -3,18 +3,19 @@ unit ProxyWebModuleUnit;
 interface
 
 uses
-  System.SysUtils, System.Classes, Web.HTTPApp,
+  System.SysUtils,
+  System.Classes,
+  Web.HTTPApp,
+  Web.WebReq,
   FMX.Types,
   IdHTTPWebBrokerBridge,
   IDGlobal,
+  REST.JSON,
+
   ProxyServiceModuleUnit,
-  Winapi.ShellApi,
-  Web.WebReq,
 
   HDHR,
-  Ceton,
-
-  REST.JSON;
+  Ceton;
 
 type
   TIdHTTPAppChunkedResponse = class(TIdHTTPAppResponse)
@@ -39,17 +40,19 @@ type
       Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
     procedure ProxyWebModuleTunerActionAction(Sender: TObject;
       Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
+    procedure WebModuleCreate(Sender: TObject);
   private
     { Private declarations }
+    fConfigManager: IServiceConfigManager;
+    fClient: TCetonClient;
+
     procedure HandleException;
 
-    function GetClient: TCetonClient;
-
-    procedure GetConfig(const aConfig: TServiceConfig);
     procedure GetLineup(const aLineup: TLineup);
     procedure SendTuneResponse(const aTuner, aChannel: Integer; const Response: TWebResponse);
 
-    property Client: TCetonClient read GetClient;
+    property ConfigManager: IServiceConfigManager read fConfigManager;
+    property Client: TCetonClient read fClient;
   public
     { Public declarations }
   end;
@@ -116,22 +119,23 @@ procedure TProxyWebModule.ProxyWebModuleDiscoverActionAction(Sender: TObject;
 var
   lResponse: TDiscoverResponse;
   lConfig: TServiceConfig;
+  lListenIP: String;
 begin
   Handled := True;
   try
     lResponse := TDiscoverResponse.Create;
     try
-      lConfig := TServiceConfig.Create;
-      try
-        lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
-        GetConfig(lConfig);
+      lListenIP := Client.ListenIP;
 
-        lResponse.BaseURL := Format('http://%s:%d', [Client.ListenIP, lConfig.HTTPPort]);
-        lResponse.LineupURL := Format('%s/lineup.json', [lResponse.BaseURL]);
+      ConfigManager.LockConfig(lConfig);
+      try
+        lResponse.BaseURL := Format('http://%s:%d', [lListenIP, lConfig.HTTPPort]);
         lResponse.DeviceID := IntToHex(lConfig.DeviceID);
       finally
-        lConfig.Free;
+        ConfigManager.UnlockConfig(lConfig);
       end;
+
+      lResponse.LineupURL := Format('%s/lineup.json', [lResponse.BaseURL]);
 
       Response.ContentType := 'application/json';
       Response.Content := TJson.ObjectToJsonString(lResponse);
@@ -224,16 +228,6 @@ begin
   end;
 end;
 
-function TProxyWebModule.GetClient: TCetonClient;
-begin
-  Result := ProxyServiceModule.Client;
-end;
-
-procedure TProxyWebModule.GetConfig(const aConfig: TServiceConfig);
-begin
-  ProxyServiceModule.GetConfig(aConfig);
-end;
-
 procedure TProxyWebModule.HandleException;
 begin
   // Send the response ourselves in an exception handler that eats all exceptions to
@@ -278,32 +272,60 @@ end;
 
 procedure TProxyWebModule.GetLineup(const aLineup: TLineup);
 var
-  lTunerAddress: String;
   lChannelMapItem: TChannelMapItem;
   i: Integer;
   lConfig: TServiceConfig;
+  lCetonConfig: TCetonConfig;
+  lRequestChannels: Boolean;
+  lTunerAddress: String;
+  lChannelMap: TChannelMap;
 begin
-  lConfig := TServiceConfig.Create;
+  ConfigManager.LockConfig(lConfig);
   try
-    lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
-    GetConfig(lConfig);
+    lRequestChannels := lConfig.Ceton.ChannelMap.Expired(3);
+  finally
+    ConfigManager.UnlockConfig(lConfig);
+  end;
 
-    if lConfig.Ceton.ChannelMap.Expired(3) then
-      Client.RequestChannelMap;
+  if lRequestChannels then
+  begin
+    Client.RequestChannelMap;
 
-    lConfig.Ceton.ChannelMap.Exclude := [];
-    GetConfig(lConfig);
+    lCetonConfig := TCetonConfig.Create;
+    try
+      Client.GetConfig(lCetonConfig);
 
-    lTunerAddress := lConfig.Ceton.TunerAddress;
+      ConfigManager.LockConfig(lConfig);
+      try
+        lConfig.Ceton.ChannelMap.Assign(lCetonConfig.ChannelMap, False);
+      finally
+        ConfigManager.UnlockConfig(lConfig);
+      end;
+    finally
+      lCetonConfig.Free;
+    end;
 
-    for i := 0 to lConfig.Ceton.ChannelMap.Count-1 do
+    ConfigManager.Changed(Client, [TServiceConfigSection.Channels]);
+  end;
+
+  lChannelMap := TChannelMap.create;
+  try
+    ConfigManager.LockConfig(lConfig);
+    try
+      lTunerAddress := lConfig.Ceton.TunerAddress;
+      lChannelMap.Assign(lConfig.Ceton.ChannelMap, False);
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    for i := 0 to lChannelMap.Count-1 do
     begin
-      lChannelMapItem := lConfig.Ceton.ChannelMap[i];
+      lChannelMapItem := lChannelMap[i];
       if lChannelMapItem.Visible then
         aLineup.Add(IntToStr(lChannelMapItem.Channel), lChannelMapItem.Name, Format('http://%s/auto/v%d', [lTunerAddress, lChannelMapItem.Channel]));
     end;
   finally
-    lConfig.Free;
+    lChannelMap.Free;
   end;
 end;
 
@@ -333,6 +355,12 @@ begin
   except
     HandleException;
   end;
+end;
+
+procedure TProxyWebModule.WebModuleCreate(Sender: TObject);
+begin
+  fConfigManager := ProxyServiceModule.ConfigManager;
+  fClient := ProxyServiceModule.Client;
 end;
 
 initialization

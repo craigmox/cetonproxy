@@ -1,5 +1,6 @@
 object ProxyWebModule: TProxyWebModule
   OldCreateOrder = False
+  OnCreate = WebModuleCreate
   Actions = <
     item
       Default = True

@@ -3,8 +3,6 @@ unit ProxyServerModuleUnit;
 interface
 
 uses
-  FastMM4,
-
   System.SysUtils,
   System.Classes,
   Winapi.ActiveX,
@@ -34,25 +32,33 @@ type
     procedure BeforeExecute; override;
   end;
 
-  TProxyServerModule = class(TDataModule)
+  TProxyServerModule = class(TDataModule, IServiceConfigEvents)
     IdScheduler: TIdSchedulerOfThreadDefault;
+    ConfigTimer: TTimer;
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
+    procedure ConfigTimerTimer(Sender: TObject);
   private
     { Private declarations }
+    fConfigManager: IServiceConfigManager;
+    fClient: TCetonClient;
+
     fServer: TIdHTTPWebBrokerBridge;
     fDiscoveryServer: TIdUDPServer;
 
-    procedure GetConfig(const aConfig: TServiceConfig);
+    fRestartServers: Boolean;
 
     procedure DiscoveryUDPRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
 
     procedure ServerException(AContext: TIdContext; AException: Exception);
 
     function GetActive: Boolean;
-    function GetClient: TCetonClient;
 
-    property Client: TCetonClient read GetClient;
+    property ConfigManager: IServiceConfigManager read fConfigManager;
+    property Client: TCetonClient read fClient;
+  protected
+    // IServiceConfigEvents
+    procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
   public
     { Public declarations }
 
@@ -93,6 +99,11 @@ procedure TProxyServerModule.DataModuleCreate(Sender: TObject);
 begin
   IdScheduler.ThreadClass := TIdCOMThread;
 
+  fConfigManager := ProxyServiceModule.ConfigManager;
+  fConfigManager.AddListener(Self);
+
+  fClient := ProxyServiceModule.Client;
+
   fServer := TIdHTTPWebBrokerBridge.Create(Self);
   fServer.Scheduler := IdScheduler;
   fServer.OnException := ServerException;
@@ -104,7 +115,7 @@ end;
 
 procedure TProxyServerModule.DataModuleDestroy(Sender: TObject);
 begin
-  //
+  fConfigManager.RemoveListener(Self);
 end;
 
 function TProxyServerModule.GetActive: Boolean;
@@ -115,52 +126,66 @@ end;
 procedure TProxyServerModule.StartServer;
 var
   lConfig: TServiceConfig;
+  lListenIP: String;
+  lHTTPPort: Integer;
 begin
   if not fServer.Active then
   begin
+    ConfigManager.LockConfig(lConfig);
     try
-      lConfig := TServiceConfig.Create;
-      try
-        lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
-        GetConfig(lConfig);
+      lListenIP := lConfig.Ceton.ListenIP;
+      lHTTPPort := lConfig.HTTPPort;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
 
-        fServer.Bindings.Clear;
-        // Needed by NextPVR to find lineup.xml
-        with fServer.Bindings.Add do
-        begin
-          IP := lConfig.Ceton.ListenIP;
-          Port := 80;
-        end;
-        with fServer.Bindings.Add do
-        begin
-          IP := lConfig.Ceton.ListenIP;
-          Port := lConfig.HTTPPort;
-        end;
-        fServer.Active := True;
-
-        fDiscoveryServer.Bindings.Clear;
-        with fDiscoveryServer.Bindings.Add do
-        begin
-          IP := lConfig.Ceton.ListenIP;
-          Port := HDHR_DISCOVERY_PORT;
-        end;
-        fDiscoveryServer.Active := True;
-      finally
-        lConfig.Free;
+    try
+      fServer.Bindings.Clear;
+      // Needed by NextPVR to find lineup.xml
+      with fServer.Bindings.Add do
+      begin
+        IP := lListenIP;
+        Port := 80;
       end;
+      with fServer.Bindings.Add do
+      begin
+        IP := lListenIP;
+        Port := lHTTPPort;
+      end;
+      fServer.Active := True;
     except
-      //
+      Log.d('Unable to bind HTTP server listening port');
+    end;
+
+    try
+      fDiscoveryServer.Bindings.Clear;
+      with fDiscoveryServer.Bindings.Add do
+      begin
+        IP := lListenIP;
+        Port := HDHR_DISCOVERY_PORT;
+      end;
+      fDiscoveryServer.Active := True;
+    except
+      Log.d('Unable to bind discovery listening port');
     end;
   end;
 end;
 
 procedure TProxyServerModule.StopServer;
 begin
-  fServer.Active := False;
-  fServer.Bindings.Clear;
+  try
+    fServer.Active := False;
+    fServer.Bindings.Clear;
+  except
+    // Ignore
+  end;
 
-  fDiscoveryServer.Active := False;
-  fDiscoveryServer.Bindings.Clear;
+  try
+    fDiscoveryServer.Active := False;
+    fDiscoveryServer.Bindings.Clear;
+  except
+    // Ignore
+  end;
 end;
 
 procedure TProxyServerModule.ServerException(AContext: TIdContext;
@@ -177,6 +202,7 @@ var
   lDiscovery: TDiscoveryData;
   lConfig: TServiceConfig;
   lBytes: TBytes;
+  lListenIP: String;
 begin
   if Length(AData) > 0 then
   begin
@@ -195,17 +221,16 @@ begin
 
             if (lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_TUNER) and (lDiscovery.DeviceID = HDHOMERUN_DEVICE_ID_WILDCARD) then
             begin
-              lConfig := TServiceConfig.Create;
-              try
-                lConfig.Ceton.ChannelMap.Exclude := lConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
-                GetConfig(lConfig);
+              lListenIP := Client.ListenIP;
 
+              ConfigManager.LockConfig(lConfig);
+              try
                 lDiscovery.DeviceID := lConfig.DeviceID;
                 lDiscovery.TunerCount := 6;
-                lDiscovery.BaseURL := AnsiString(Format('http://%s:%d', [Client.ListenIP, lConfig.HTTPPort]));
+                lDiscovery.BaseURL := AnsiString(Format('http://%s:%d', [lListenIP, lConfig.HTTPPort]));
                 lDiscovery.LineupURL := AnsiString(Format('%s/lineup.json', [lDiscovery.BaseURL]));
               finally
-                lConfig.Free;
+                ConfigManager.UnlockConfig(lConfig);
               end;
 
               lBytes := TPacket.FromDiscovery(False, lDiscovery).ToBytes;
@@ -222,14 +247,28 @@ begin
   end;
 end;
 
-procedure TProxyServerModule.GetConfig(const aConfig: TServiceConfig);
+procedure TProxyServerModule.Changed(const aSender: TObject;
+  const aSections: TServiceConfigSections);
 begin
-  ProxyServiceModule.GetConfig(aConfig);
+  TThread.ForceQueue(nil,
+    procedure()
+    begin
+      if TServiceConfigSection.Other in aSections then
+      begin
+        fRestartServers := True;
+      end;
+    end);
 end;
 
-function TProxyServerModule.GetClient: TCetonClient;
+procedure TProxyServerModule.ConfigTimerTimer(Sender: TObject);
 begin
-  Result := ProxyServiceModule.Client;
+  if fRestartServers then
+  begin
+    fRestartServers := False;
+
+    StopServer;
+    StartServer;
+  end;
 end;
 
 end.
