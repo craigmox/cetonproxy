@@ -20,5 +20,6 @@ Right now the app produces no log file, but does log using the `OutputDebugStrin
 - I do not have a way to test ClearQAM channels, DVB tuning, or many other scenarios that the InfiniTV supports, so they likely won't work "out of the box".  I am in USA on Comcast, so I can't say it will work on anything else.
 - PCIE InfiniTV cards are untested -- I use an ethernet device.
 - The app always assumes 6 tuners, even if yours has 4.  Just don't allocate the last 2.
+- This may not emulate an HDHomeRun perfectly since I've only tested it with NextPVR v5.  It's very possible it could work with other DVR software without much work.  Plex would be a good one some day..
 
 I will try to get something working if you're willing to help me work through it.  Submit an issue, and I'll get back to you.  Thanks!
