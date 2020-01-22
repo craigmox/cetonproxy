@@ -19,6 +19,7 @@ uses
   IdUDPServer,
   IdSocketHandle,
   IdGlobal,
+  IdStack,
 
   ProxyServiceModuleUnit,
 
@@ -53,9 +54,12 @@ type
     procedure ServerException(AContext: TIdContext; AException: Exception);
 
     function GetActive: Boolean;
+    function GetListenIP: String;
 
     property ConfigManager: IServiceConfigManager read fConfigManager;
     property Client: TCetonClient read fClient;
+
+    property ListenIP: String read GetListenIP;
   protected
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
@@ -133,7 +137,7 @@ begin
   begin
     ConfigManager.LockConfig(lConfig);
     try
-      lListenIP := lConfig.Ceton.ListenIP;
+      lListenIP := lConfig.ListenIP;
       lHTTPPort := lConfig.HTTPPort;
     finally
       ConfigManager.UnlockConfig(lConfig);
@@ -221,7 +225,7 @@ begin
 
             if (lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_TUNER) and (lDiscovery.DeviceID = HDHOMERUN_DEVICE_ID_WILDCARD) then
             begin
-              lListenIP := Client.ListenIP;
+              lListenIP := ListenIP;
 
               ConfigManager.LockConfig(lConfig);
               try
@@ -268,6 +272,28 @@ begin
 
     StopServer;
     StartServer;
+  end;
+end;
+
+function TProxyServerModule.GetListenIP: String;
+var
+  lConfig: TServiceConfig;
+begin
+  ConfigManager.LockConfig(lConfig);
+  try
+    Result := lConfig.ListenIP;
+  finally
+    ConfigManager.UnlockConfig(lConfig);
+  end;
+
+  if Result = '' then
+  begin
+    TIdStack.IncUsage;
+    try
+      Result := GStack.LocalAddress;
+    finally
+      TIdStack.DecUsage;
+    end;
   end;
 end;
 

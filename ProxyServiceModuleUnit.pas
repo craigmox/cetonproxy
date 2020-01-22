@@ -28,6 +28,7 @@ type
   private
     fDeviceID: UInt32;
     fCeton: TCetonConfig;
+    fListenIP: String;
     fHTTPPort: Integer;
 
     procedure CreateDeviceID;
@@ -41,7 +42,9 @@ type
     class function FromJSON(const aJSON: String): TServiceConfig; static;
 
     property Ceton: TCetonConfig read fCeton;
+
     property DeviceID: UInt32 read fDeviceID write fDeviceID;
+    property ListenIP: String read fListenIP write fListenIP;
     property HTTPPort: Integer read fHTTPPort write fHTTPPort;
   end;
 
@@ -210,6 +213,7 @@ begin
     lDest.fCeton.Assign(fCeton);
     lDest.fDeviceID := fDeviceID;
     lDest.fHTTPPort := fHTTPPort;
+    lDest.fListenIP := fListenIP;
   end
   else
     inherited;

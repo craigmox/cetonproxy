@@ -66,22 +66,25 @@ type
     Label1: TLabel;
     SaveTimer: TTimer;
     Label2: TLabel;
-    eListenIP: TEdit;
+    eCetonListenIP: TEdit;
     btnRefreshChannels: TButton;
     lbStats: TListView;
     Splitter2: TSplitter;
     Label3: TLabel;
-    eListenHTTPPort: TEdit;
+    eHDHRListenHTTPPort: TEdit;
+    eHDHRListenIP: TEdit;
+    Label4: TLabel;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
     procedure btnEditChannelsClick(Sender: TObject);
     procedure SaveTimerTimer(Sender: TObject);
     procedure FormShow(Sender: TObject);
-    procedure eListenIPChangeTracking(Sender: TObject);
+    procedure eCetonListenIPChangeTracking(Sender: TObject);
     procedure eCetonTunerAddressChangeTracking(Sender: TObject);
     procedure btnRefreshChannelsClick(Sender: TObject);
-    procedure eListenHTTPPortChangeTracking(Sender: TObject);
+    procedure eHDHRListenHTTPPortChangeTracking(Sender: TObject);
+    procedure eHDHRListenIPChangeTracking(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -323,8 +326,9 @@ begin
     ConfigManager.LockConfig(lConfig);
     try
       eCetonTunerAddress.Text := lConfig.Ceton.TunerAddress;
-      eListenIP.Text := lConfig.Ceton.ListenIP;
-      eListenHTTPPort.Text := IntToStr(lConfig.HTTPPort);
+      eCetonListenIP.Text := lConfig.Ceton.ListenIP;
+      eHDHRListenIP.Text := lConfig.ListenIP;
+      eHDHRListenHTTPPort.Text := IntToStr(lConfig.HTTPPort);
     finally
       ConfigManager.UnlockConfig(lConfig);
     end;
@@ -396,7 +400,7 @@ begin
   UpdateInterface;
 end;
 
-procedure TMainForm.eListenIPChangeTracking(Sender: TObject);
+procedure TMainForm.eCetonListenIPChangeTracking(Sender: TObject);
 var
   lConfig: TServiceConfig;
 begin
@@ -404,7 +408,7 @@ begin
   begin
     ConfigManager.LockConfig(lConfig);
     try
-      lConfig.Ceton.ListenIP := eListenIP.Text;
+      lConfig.Ceton.ListenIP := eCetonListenIP.Text;
     finally
       ConfigManager.UnlockConfig(lConfig);
     end;
@@ -475,7 +479,7 @@ begin
   end;
 end;
 
-procedure TMainForm.eListenHTTPPortChangeTracking(Sender: TObject);
+procedure TMainForm.eHDHRListenHTTPPortChangeTracking(Sender: TObject);
 var
   lConfig: TServiceConfig;
 begin
@@ -483,7 +487,7 @@ begin
   begin
     ConfigManager.LockConfig(lConfig);
     try
-      lConfig.HTTPPort := StrToIntDef(eListenHTTPPort.Text, HDHR_HTTP_PORT);
+      lConfig.HTTPPort := StrToIntDef(eHDHRListenHTTPPort.Text, HDHR_HTTP_PORT);
     finally
       ConfigManager.UnlockConfig(lConfig);
     end;
@@ -507,6 +511,23 @@ begin
 
         UpdateInterface;
       end);
+  end;
+end;
+
+procedure TMainForm.eHDHRListenIPChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.ListenIP := eHDHRListenIP.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
   end;
 end;
 
