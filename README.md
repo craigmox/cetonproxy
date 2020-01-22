@@ -15,7 +15,7 @@ An app that allows a Ceton InfiniTV network tuner to appear as a SiliconDust HDH
 ### Network Ceton device
   You should be able to leave both `Listen IP` settings empty.  
 ### PCI Ceton device:
-  Your computer with the device should have at least two network adapters.  One provides IP access to the tuner.  The other connects your PC to the rest of your network.  Typically the tuner is located at `192.168.200.1`.  The network adapter for the tuner is assigned it's own IP by the tuner.  Set `Listen IP for Ceton` to this IP, which is typically `192.168.200.2`.  Set the `Listen IP as HDHomeRun` to the IP address set on your other network adapter.  For example, in my case it is `192.168.1.116`.  Both of these IP addresses can be verified by running `ipconfig /all` in a command prompt.  (This will all get easier once I've confirmed PCI devices work correctly)
+  Your computer with the device should have at least two network adapters.  One provides IP access to the tuner.  The other connects your PC to the rest of your network.  Typically the tuner is located at `192.168.200.1`.  The network adapter for the tuner is assigned its own IP by the tuner through DHCP.  Set `Listen IP for Ceton` to this IP, which is typically `192.168.200.2`.  Set the `Listen IP as HDHomeRun` to the IP address in use on your other network adapter.  For example, in my case it is `192.168.1.116`.  Both of these IP addresses can be verified by running `ipconfig /all` in a command prompt.  (This will all get easier once I've confirmed PCI devices work correctly)
 
 # Testing
 In a web browser, connect to `http://<IP of machine running cetonproxy>:5004/lineup.xml` to make sure it responds with the set of channels you configured above.
