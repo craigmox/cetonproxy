@@ -13,14 +13,23 @@ An app that allows a Ceton InfiniTV network tuner to appear as a SiliconDust HDH
 
 ## Configuring Listen IPs
 ### Network Ceton device
-  You should be able to leave both `Listen IP` settings empty.  
+You should be able to leave both `Listen IP` settings empty.  
 ### PCI Ceton device:
-  Your computer with the device should have at least two network adapters.  One provides IP access to the tuner.  The other connects your PC to the rest of your network.  Typically the tuner is located at `192.168.200.1`.  The network adapter for the tuner is assigned its own IP by the tuner through DHCP.  Set `Listen IP for Ceton` to this IP, which is typically `192.168.200.2`.  Set the `Listen IP as HDHomeRun` to the IP address in use on your other network adapter.  For example, in my case it is `192.168.1.116`.  Both of these IP addresses can be verified by running `ipconfig /all` in a command prompt.  (This will all get easier once I've confirmed PCI devices work correctly)
+Your computer with the device should have at least two network adapters.  One provides IP access to the tuner.  The other connects your PC to the rest of your network.  You need the IP addresses for both of these.  
+1.  In Windows 10, click the start menu, type in `Network Connections`, and press enter.
+2.  Double click the `Ceton InfiniTV PCIe` adapter.
+3.  Click the `Details...` button.
+4.  Take the IP listed as `IPv4 Address` and fill it into the `Listen IP for Ceton` setting in cetonproxy.
+5.  Go back to the network connections window.
+6.  Double click the other adapter, likely labeled `Ethernet`.
+7.  Click the `Details...` button.
+8.  Take the IP listed as `IPv4 Address` and fill it into the `Listen IP as HDHomeRun` setting in cetonproxy.
+Both of these IP addresses can also be verified by running `ipconfig /all` in a command prompt.  (This will all get easier once I've confirmed PCI devices work correctly)
 
 # Testing
-In a web browser, connect to `http://<IP of machine running cetonproxy>:5004/lineup.xml` to make sure it responds with the set of channels you configured above.
+In a web browser, connect to `http://<Listen IP as HDHomeRun setting>:5004/lineup.xml` to make sure it responds with the set of channels you configured above.  If you did not set a listen IP, then use the IP given to your computer that is running cetonproxy.
 
-The easiest way to check if video is working is to use [VLC](https://www.videolan.org/index.html).  Open a network stream and type in the url `http://<IP of machine running cetonproxy>:5004/auto/v<channel number>`.
+The easiest way to check if video is working is to use [VLC](https://www.videolan.org/index.html).  Open a network stream and type in the url `http://<Listen IP as HDHomeRun setting>:5004/auto/v<channel number>`.
 
 Right now the app produces no log file, but does log using the `OutputDebugString` method.  Use a program like [DebugView++](https://github.com/CobaltFusion/DebugViewPP/releases) to be able to monitor log messages from cetonproxy.
 
