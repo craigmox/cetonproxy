@@ -24,6 +24,7 @@ Your computer with the device should have at least two network adapters.  One pr
 6.  Double click the other adapter, likely labeled `Ethernet`.
 7.  Click the `Details...` button.
 8.  Take the IP listed as `IPv4 Address` and fill it into the `Listen IP as HDHomeRun` setting in cetonproxy.
+
 Both of these IP addresses can also be verified by running `ipconfig /all` in a command prompt.  (This will all get easier once I've confirmed PCI devices work correctly)
 
 # Testing
