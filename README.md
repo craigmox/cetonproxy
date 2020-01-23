@@ -25,7 +25,7 @@ Your computer with the device should have at least two network adapters.  One pr
 7.  Click the `Details...` button.
 8.  Take the IP listed as `IPv4 Address` and fill it into the `Listen IP as HDHomeRun` setting in cetonproxy.
 
-Both of these IP addresses can also be verified by running `ipconfig /all` in a command prompt.  (This will all get easier once I've confirmed PCI devices work correctly)
+Both of these IP addresses can also be verified by running `ipconfig /all` in a command prompt. 
 
 # Testing
 In a web browser, connect to `http://<Listen IP as HDHomeRun setting>:5004/lineup.xml` to make sure it responds with the set of channels you configured above.  If you did not set a listen IP, then use the IP given to your computer that is running cetonproxy.
@@ -36,8 +36,8 @@ Right now the app produces no log file, but does log using the `OutputDebugStrin
 
 # Broken
 - I do not have a way to test ClearQAM channels, DVB tuning, or many other scenarios that the InfiniTV supports, so they likely won't work "out of the box".  I am in USA on Comcast, so I can't say it will work on anything else.
-- PCIE InfiniTV cards are untested -- I use an ethernet device.
 - The app always assumes 6 tuners, even if yours has 4.  Just don't allocate the last 2.
-- This may not emulate an HDHomeRun perfectly since I've only tested it with NextPVR v5.  It's very possible it could work with other DVR software without much work.  Plex would be a good one some day..
+- This likely does not emulate an HDHomeRun perfectly since I've only tested it with NextPVR v5.  It's very possible it could work with other DVR software without much work.  Plex would be a good one some day..
+- If there is interest in a Linux/Android/OSX version, let me know, and I can try to put time into it.
 
 I will try to get something working if you're willing to help me work through it.  Submit an issue, and I'll get back to you.  Thanks!
