@@ -17,6 +17,9 @@ uses
   IdThread,
   IdContext,
   IdUDPServer,
+  IdIPMCastServer,
+  IdIPMCastClient,
+  IdTCPServer,
   IdSocketHandle,
   IdGlobal,
   IdStack,
@@ -25,6 +28,9 @@ uses
 
   Ceton,
   HDHR;
+
+const
+  SSDP_PORT = 1900;
 
 type
   TIdCOMThread = class(TIdThreadWithTask)
@@ -35,10 +41,10 @@ type
 
   TProxyServerModule = class(TDataModule, IServiceConfigEvents)
     IdScheduler: TIdSchedulerOfThreadDefault;
-    ConfigTimer: TTimer;
+    ServiceTimer: TTimer;
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
-    procedure ConfigTimerTimer(Sender: TObject);
+    procedure ServiceTimerTimer(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -46,20 +52,28 @@ type
 
     fServer: TIdHTTPWebBrokerBridge;
     fDiscoveryServer: TIdUDPServer;
+//    fSSDPServer: TIdIPMCastServer;
+    fSSDPClient: TIdIPMCastClient;
+//    fControlServer: TIdTCPServer;
 
     fRestartServers: Boolean;
 
     procedure DiscoveryUDPRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
 
+    procedure SSDPClientRead(Sender: TObject; const AData: TIdBytes; ABinding: TIdSocketHandle);
+
+    procedure ControlTCPConnect(aContext: TIdContext);
+    procedure ControlTCPExecute(aContext: TIdContext);
+
     procedure ServerException(AContext: TIdContext; AException: Exception);
+
+    function CreateSSDPAlivePacket: String;
 
     function GetActive: Boolean;
     function GetListenIP: String;
 
     property ConfigManager: IServiceConfigManager read fConfigManager;
     property Client: TCetonClient read fClient;
-
-    property ListenIP: String read GetListenIP;
   protected
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
@@ -69,7 +83,10 @@ type
     procedure StartServer;
     procedure StopServer;
 
+    property ListenIP: String read GetListenIP;
     property Active: Boolean read GetActive;
+
+    property DiscoveryServer: TIdUDPServer read fDiscoveryServer;
   end;
 
 var
@@ -113,8 +130,20 @@ begin
   fServer.OnException := ServerException;
 
   fDiscoveryServer := TIdUDPServer.Create(Self);
-  fDiscoveryServer.ThreadedEvent := False;
+  fDiscoveryServer.ThreadedEvent := True;
   fDiscoveryServer.OnUDPRead := DiscoveryUDPRead;
+
+//  fSSDPServer := TIdIPMCastServer.Create(Self);
+//  fSSDPServer.MulticastGroup := '239.255.255.250';
+
+  fSSDPClient := TIdIPMCastClient.Create(Self);
+  fSSDPClient.MulticastGroup := '239.255.255.250';
+  fSSDPClient.OnIPMCastRead := SSDPClientRead;
+  fSSDPClient.ThreadedEvent := True;
+
+//  fControlServer := TIdTCPServer.Create(Self);
+//  fControlServer.OnConnect := ControlTCPConnect;
+//  fControlServer.OnExecute := ControlTCPExecute;
 end;
 
 procedure TProxyServerModule.DataModuleDestroy(Sender: TObject);
@@ -172,6 +201,38 @@ begin
     except
       Log.d('Unable to bind discovery listening port');
     end;
+
+{    try
+      fControlServer.Bindings.Clear;
+      with fControlServer.Bindings.Add do
+      begin
+        IP := lListenIP;
+        Port := HDHR_DISCOVERY_PORT;
+      end;
+      fControlServer.Active := True;
+    except
+      Log.d('Unable to bind control listening port');
+    end;}
+
+    try
+      fSSDPClient.Bindings.Clear;
+      with fSSDPClient.Bindings.Add do
+      begin
+        IP := lListenIP;
+        Port := SSDP_PORT;
+      end;
+      fSSDPClient.Active := True;
+    except
+      Log.d('Unable to bind SSDP listening port');
+    end;
+
+{    try
+      fSSDPServer.BoundIP := lListenIP;
+      fSSDPServer.BoundPort := SSDP_PORT;
+      fSSDPServer.Active := True;
+    except
+      Log.d('Unable to bind SSDP listening port');
+    end;}
   end;
 end;
 
@@ -190,6 +251,26 @@ begin
   except
     // Ignore
   end;
+
+{  try
+    fControlServer.Active := False;
+    fControlServer.Bindings.Clear;
+  except
+    // Ignore
+  end;}
+
+  try
+    fSSDPClient.Active := False;
+    fSSDPClient.Bindings.Clear;
+  except
+    // Ignore
+  end;
+
+{  try
+    fSSDPServer.Active := False;
+  except
+    // Ignore
+  end;}
 end;
 
 procedure TProxyServerModule.ServerException(AContext: TIdContext;
@@ -207,6 +288,8 @@ var
   lConfig: TServiceConfig;
   lBytes: TBytes;
   lListenIP: String;
+  lDeviceID: UInt32;
+  lTunerCount: Integer;
 begin
   if Length(AData) > 0 then
   begin
@@ -223,14 +306,23 @@ begin
             lDiscovery := lPacket.ToDiscovery;
             Log.D('Received discovery request: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
 
-            if (lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_TUNER) and (lDiscovery.DeviceID = HDHOMERUN_DEVICE_ID_WILDCARD) then
+            ConfigManager.LockConfig(lConfig);
+            try
+              lDeviceID := lConfig.DeviceID;
+            finally
+              ConfigManager.UnlockConfig(lConfig);
+            end;
+
+            if ((lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_TUNER) or (lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_WILDCARD)) and ((lDiscovery.DeviceID = HDHOMERUN_DEVICE_ID_WILDCARD) or (lDiscovery.DeviceID = lDeviceID)) then
             begin
               lListenIP := ListenIP;
+              lTunerCount := Client.TunerCount;
 
               ConfigManager.LockConfig(lConfig);
               try
                 lDiscovery.DeviceID := lConfig.DeviceID;
-                lDiscovery.TunerCount := 6;
+                lDiscovery.TunerCount := lTunerCount;
+                lDiscovery.DeviceAuthStr := 'abcdefg';
                 lDiscovery.BaseURL := AnsiString(Format('http://%s:%d', [lListenIP, lConfig.HTTPPort]));
                 lDiscovery.LineupURL := AnsiString(Format('%s/lineup.json', [lDiscovery.BaseURL]));
               finally
@@ -244,6 +336,10 @@ begin
 
               AThread.Server.SendBuffer(ABinding.PeerIP, ABinding.PeerPort, TIdBytes(lBytes));
             end;
+          end;
+          HDHOMERUN_TYPE_DISCOVER_RPY: begin
+            lDiscovery := lPacket.ToDiscovery;
+            Log.D('Received discovery reply: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
           end;
         end;
       end;
@@ -264,7 +360,7 @@ begin
     end);
 end;
 
-procedure TProxyServerModule.ConfigTimerTimer(Sender: TObject);
+procedure TProxyServerModule.ServiceTimerTimer(Sender: TObject);
 begin
   if fRestartServers then
   begin
@@ -273,6 +369,8 @@ begin
     StopServer;
     StartServer;
   end;
+
+//  fSSDPServer.Send(CreateSSDPAlivePacket);
 end;
 
 function TProxyServerModule.GetListenIP: String;
@@ -295,6 +393,77 @@ begin
       TIdStack.DecUsage;
     end;
   end;
+end;
+
+procedure TProxyServerModule.ControlTCPConnect(aContext: TIdContext);
+begin
+  Log.D('Control connect');
+end;
+
+procedure TProxyServerModule.ControlTCPExecute(aContext: TIdContext);
+begin
+  Log.D('Control execute');
+end;
+
+procedure TProxyServerModule.SSDPClientRead(Sender: TObject;
+  const AData: TIdBytes; ABinding: TIdSocketHandle);
+var
+  lData: UTF8String;
+begin
+  if Length(AData) > 0 then
+  begin
+    SetLength(lData, Length(AData));
+    Move(AData[0], lData[Low(lData)], Length(AData));
+
+    // TODO: Make more robust
+    if String(lData).StartsWith('M-SEARCH', True) then
+    begin
+      if String(lData).Contains('ST: upnp:rootdevice') then
+      begin
+        Log.D('Received M-SEARCH for rootdevice from %s', [ABinding.PeerIP]);
+        fDiscoveryServer.Send(ABinding.PeerIP, ABinding.PeerPort, CreateSSDPAlivePacket);
+      end;
+    end;
+  end;
+end;
+
+//  Received SSDP data from 192.168.1.43: NOTIFY * HTTP/1.1
+//  Host: 239.255.255.250:1900
+//  NT: upnp:rootdevice
+//  NTS: ssdp:alive
+//  Server: HDHomeRun/1.0 UPnP/1.0
+//  Location: http://192.168.1.43:80/dri/device.xml
+//  Cache-Control: max-age=1800
+//  USN: uuid:473366D2-A765-3D61-B466-XXXXX::upnp:rootdevice
+
+function TProxyServerModule.CreateSSDPAlivePacket: String;
+const
+  cSSDPAlive =
+    'NOTIFY * HTTP/1.1'#13#10+
+    'Host: 239.255.255.250:1900'#13#10+
+    'NT: upnp:rootdevice'#13#10+
+    'NTS: ssdp:alive'#13#10+
+    'Server: HDHomeRun/1.0 UPnP/1.0'#13#10+
+    'Location: http://%s:%d/device.xml'#13#10+
+    'Cache-Control: max-age=1800'#13#10+
+    'USN: uuid:%s::upnp:rootdevice'#13#10#13#10;
+var
+  lListenIP: String;
+  lPort: Integer;
+  lDeviceUUID: String;
+  lConfig: TServiceConfig;
+begin
+  lListenIP := ListenIP;
+
+  ConfigManager.LockConfig(lConfig);
+  try
+    lPort := lConfig.HTTPPort;
+    lDeviceUUID := lConfig.DeviceUUID;
+  finally
+    ConfigManager.UnlockConfig(lConfig);
+  end;
+
+  Result := Format(cSSDPAlive, [ListenIP, lPort, lDeviceUUID]);
 end;
 
 end.

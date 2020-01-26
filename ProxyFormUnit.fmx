@@ -2,7 +2,7 @@ object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Ceton HDHomeRun Proxy'
-  ClientHeight = 748
+  ClientHeight = 754
   ClientWidth = 435
   Fill.Kind = Solid
   Position = ScreenCenter
@@ -17,11 +17,11 @@ object MainForm: TMainForm
   object VertScrollBox1: TVertScrollBox
     Align = Contents
     Size.Width = 435.000000000000000000
-    Size.Height = 748.000000000000000000
+    Size.Height = 754.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
     Viewport.Width = 435.000000000000000000
-    Viewport.Height = 748.000000000000000000
+    Viewport.Height = 754.000000000000000000
     object gbGroup: TGroupBox
       Align = Top
       Padding.Left = 15.000000000000000000
@@ -73,6 +73,14 @@ object MainForm: TMainForm
         Text = 'Request Channels'
         OnClick = btnRefreshChannelsClick
       end
+      object lblSelectedChannels: TLabel
+        Position.X = 125.000000000000000000
+        Position.Y = 253.000000000000000000
+        Size.Width = 180.000000000000000000
+        Size.Height = 17.000000000000000000
+        Size.PlatformDefault = False
+        TabOrder = 3
+      end
     end
     object gbSettings: TGroupBox
       Align = Top
@@ -81,7 +89,7 @@ object MainForm: TMainForm
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
       Text = 'Settings'
-      TabOrder = 1
+      TabOrder = 2
       object eCetonTunerAddress: TEdit
         Touch.InteractiveGestures = [LongTap, DoubleTap]
         TabOrder = 3
@@ -165,7 +173,7 @@ object MainForm: TMainForm
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
       Text = 'Statistics'
-      TabOrder = 2
+      TabOrder = 3
       object lbStats: TListView
         ItemAppearanceClassName = 'TCustomizeItemObjects'
         ItemEditAppearanceClassName = 'TCustomizeItemObjects'
@@ -196,6 +204,55 @@ object MainForm: TMainForm
       Size.Width = 435.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False
+    end
+    object GroupBox1: TGroupBox
+      Align = Top
+      Position.Y = 748.000000000000000000
+      Size.Width = 435.000000000000000000
+      Size.Height = 141.000000000000000000
+      Size.PlatformDefault = False
+      StyleLookup = 'gbGroupStyle1'
+      Text = 'Debug'
+      Visible = False
+      TabOrder = 1
+      object eDebugIP: TEdit
+        Touch.InteractiveGestures = [LongTap, DoubleTap]
+        TabOrder = 0
+        Position.X = 37.000000000000000000
+        Position.Y = 24.000000000000000000
+        Size.Width = 129.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
+      end
+      object Label5: TLabel
+        Position.X = 16.000000000000000000
+        Position.Y = 27.000000000000000000
+        Size.Width = 17.000000000000000000
+        Size.Height = 17.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'IP:'
+        TabOrder = 1
+      end
+      object btnDebugDiscoveryRequest: TButton
+        Position.X = 16.000000000000000000
+        Position.Y = 56.000000000000000000
+        Size.Width = 121.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
+        TabOrder = 2
+        Text = 'Discovery Request'
+        OnClick = btnDebugDiscoveryRequestClick
+      end
+    end
+    object Splitter3: TSplitter
+      Align = Top
+      Cursor = crVSplit
+      MinSize = 20.000000000000000000
+      Position.Y = 748.000000000000000000
+      Size.Width = 435.000000000000000000
+      Size.Height = 8.000000000000000000
+      Size.PlatformDefault = False
+      Visible = False
     end
   end
   object StyleBook1: TStyleBook

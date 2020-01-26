@@ -33,6 +33,8 @@ uses
   REST.json,
   REST.Client,
 
+  IdGlobal,
+
   HDHR,
   Ceton,
   SocketUtils,
@@ -74,6 +76,12 @@ type
     eHDHRListenHTTPPort: TEdit;
     eHDHRListenIP: TEdit;
     Label4: TLabel;
+    GroupBox1: TGroupBox;
+    Splitter3: TSplitter;
+    eDebugIP: TEdit;
+    Label5: TLabel;
+    btnDebugDiscoveryRequest: TButton;
+    lblSelectedChannels: TLabel;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
@@ -85,6 +93,7 @@ type
     procedure btnRefreshChannelsClick(Sender: TObject);
     procedure eHDHRListenHTTPPortChangeTracking(Sender: TObject);
     procedure eHDHRListenIPChangeTracking(Sender: TObject);
+    procedure btnDebugDiscoveryRequestClick(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -102,6 +111,7 @@ type
     procedure Save(const aSections: TServiceConfigSections);
 
     procedure UpdateInterface;
+    procedure UpdateChannelCount;
     procedure FillChannels;
     procedure FillTunerStatistics;
 
@@ -237,6 +247,8 @@ begin
   end
   else
     lbChannels.Enabled := False;
+
+  UpdateChannelCount;
 end;
 
 procedure TMainForm.FormDestroy(Sender: TObject);
@@ -264,37 +276,11 @@ begin
       ConfigManager.UnlockConfig(lConfig);
     end;
 
+    updateChannelCount;
+
     Save([TServiceConfigSection.Channels]);
   end;
 end;
-
-{procedure TMainForm.GetConfig;
-var
-  lOldConfig, lNewConfig: TServiceConfig;
-begin
-  lOldConfig := TServiceConfig.Create;
-  lNewConfig := TServiceConfig.Create;
-  try
-    lOldConfig.Ceton.ChannelMap.Exclude := lOldConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
-    lOldConfig.Assign(fConfig);
-
-    lNewConfig.Ceton.ChannelMap.Exclude := lNewConfig.Ceton.ChannelMap.Exclude + [TChannelMapSection.Items];
-    ProxyServiceModule.GetConfig(lNewConfig);
-
-    if lNewConfig.ToJSON <> lOldConfig.ToJSON then
-    begin
-      // Do not reload channels on every change
-      lbChannels.Clear;
-
-      fConfig.Assign(lNewConfig);
-
-      UpdateInterface;
-    end;
-  finally
-    lNewConfig.Free;
-    lOldConfig.Free;
-  end;
-end;}
 
 procedure TMainForm.BeginInterfaceUpdate;
 begin
@@ -529,6 +515,38 @@ begin
 
     Save([TServiceConfigSection.Other]);
   end;
+end;
+
+procedure TMainForm.btnDebugDiscoveryRequestClick(Sender: TObject);
+var
+  lDiscovery: TDiscoveryData;
+  lBytes: TBytes;
+begin
+  lDiscovery.DeviceType := HDHOMERUN_DEVICE_TYPE_TUNER;
+  lDiscovery.DeviceID := HDHOMERUN_DEVICE_ID_WILDCARD;
+
+  lBytes := TPacket.FromDiscovery(True, lDiscovery).ToBytes;
+
+  ProxyServerModule.DiscoveryServer.SendBuffer(eDebugIP.Text, HDHR_DISCOVERY_PORT, TIdBytes(lBytes));
+//  ProxyServerModule.DiscoveryServer.Broadcast(TIdBytes(lBytes), HDHR_DISCOVERY_PORT);
+end;
+
+procedure TMainForm.UpdateChannelCount;
+var
+  i, lChannelCount: Integer;
+begin
+  if fEditingChannels then
+  begin
+    lChannelCount := 0;
+    for i := 0 to lbChannels.Items.Count-1 do
+    begin
+      if (TChannelListBoxItem(lbChannels.ListItems[i]).IsChecked) then
+        Inc(lChannelCount);
+    end;
+    lblSelectedChannels.Text := Format('(%d selected)', [lChannelCount]);
+  end
+  else
+    lblSelectedChannels.Text := '';
 end;
 
 end.

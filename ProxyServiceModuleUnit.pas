@@ -30,8 +30,10 @@ type
     fCeton: TCetonConfig;
     fListenIP: String;
     fHTTPPort: Integer;
+    fDeviceUUID: String;
 
     procedure CreateDeviceID;
+    procedure CreateDeviceUUID;
   public
     constructor Create;
     destructor Destroy; override;
@@ -44,6 +46,7 @@ type
     property Ceton: TCetonConfig read fCeton;
 
     property DeviceID: UInt32 read fDeviceID write fDeviceID;
+    property DeviceUUID: String read fDeviceUUID write fDeviceUUID;
     property ListenIP: String read fListenIP write fListenIP;
     property HTTPPort: Integer read fHTTPPort write fHTTPPort;
   end;
@@ -116,7 +119,7 @@ implementation
 
 procedure TServiceConfig.CreateDeviceID;
 begin
-  fDeviceID := UInt32(Random(Integer($FFFFFFFF))+1);
+  fDeviceID := THDHRUtils.CreateDeviceID;
 end;
 
 function TServiceConfig.ToJSON: String;
@@ -193,6 +196,7 @@ begin
   fHTTPPort := HDHR_HTTP_PORT;
 
   CreateDeviceID;
+  CreateDeviceUUID;
 end;
 
 destructor TServiceConfig.Destroy;
@@ -212,6 +216,7 @@ begin
 
     lDest.fCeton.Assign(fCeton);
     lDest.fDeviceID := fDeviceID;
+    lDest.fDeviceUUID := fDeviceUUID;
     lDest.fHTTPPort := fHTTPPort;
     lDest.fListenIP := fListenIP;
   end
@@ -219,6 +224,11 @@ begin
     inherited;
 end;
 
+
+procedure TServiceConfig.CreateDeviceUUID;
+begin
+  fDeviceUUID := TGUID.NewGuid.ToString.Substring(1, 36);
+end;
 
 { TServiceConfigManager }
 

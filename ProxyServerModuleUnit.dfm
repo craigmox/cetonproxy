@@ -9,8 +9,8 @@ object ProxyServerModule: TProxyServerModule
     Left = 88
     Top = 56
   end
-  object ConfigTimer: TTimer
-    OnTimer = ConfigTimerTimer
+  object ServiceTimer: TTimer
+    OnTimer = ServiceTimerTimer
     Left = 144
     Top = 56
   end

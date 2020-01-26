@@ -10,6 +10,7 @@ uses
   System.Generics.Collections,
   System.JSON,
   REST.JsonReflect,
+  REST.Json.Types,
   Xml.XmlDoc,
   Xml.XmlIntf,
   SocketUtils,
@@ -30,6 +31,7 @@ const
   HDHOMERUN_TAG_TUNER_COUNT = $10;
 
   HDHOMERUN_DEVICE_TYPE_TUNER = 1;
+  HDHOMERUN_DEVICE_TYPE_WILDCARD = $FFFFFFFF;
 
   HDHOMERUN_DEVICE_ID_WILDCARD = $FFFFFFFF;
 
@@ -154,36 +156,51 @@ type
 
   TDiscoverResponse = class
   private
-    fManufacturor: String;
-    fLineupURL: String;
-    fTunerCount: Integer;
-    fBaseURL: String;
-    fDeviceAuth: String;
-    fFirmwareVersion: String;
-    fFirmwareName: String;
+    [JSONName('FriendlyName')]
     fFriendlyName: String;
-    fDeviceId: String;
+//    [JSONName('Manufacturor')]
+//    fManufacturor: String;
+    [JSONName('ModelNumber')]
     fModelNumber: String;
+    [JSONName('FirmwareName')]
+    fFirmwareName: String;
+    [JSONName('FirmwareVersion')]
+    fFirmwareVersion: String;
+    [JSONName('DeviceID')]
+    fDeviceID: String;
+    [JSONName('DeviceAuth')]
+    fDeviceAuth: String;
+    [JSONName('TunerCount')]
+    fTunerCount: Integer;
+    [JSONName('BaseURL')]
+    fBaseURL: String;
+    [JSONName('LineupURL')]
+    fLineupURL: String;
   public
     constructor Create;
 
     property FriendlyName: String read fFriendlyName write fFriendlyName;
-    property Manufacturer: String read fManufacturor write fManufacturor;
+//    property Manufacturer: String read fManufacturor write fManufacturor;
     property ModelNumber: String read fModelNumber write fModelNumber;
     property FirmwareName: String read fFirmwareName write fFirmwareName;
-    property TunerCount: Integer read fTunerCount write fTunerCount;
     property FirmwareVersion: String read fFirmwareVersion write fFirmwareVersion;
     property DeviceID: String read fDeviceId write fDeviceID;
     property DeviceAuth: String read fDeviceAuth write fDeviceAuth;
+    property TunerCount: Integer read fTunerCount write fTunerCount;
     property BaseURL: String read fBaseURL write fBaseURL;
     property LineupURL: String read fLineupURL write fLineupURL;
   end;
 
+
+
   TLineupItem = class
   private
-    fGuideName: String;
-    fURL: String;
+    [JSONName('GuideNumber')]
     fGuideNumber: String;
+    [JSONName('GuideName')]
+    fGuideName: String;
+    [JSONName('URL')]
+    fURL: String;
   public
     property GuideNumber: String read fGuideNumber write fGuideNumber;
     property GuideName: String read fGuideName write fGuideName;
@@ -203,6 +220,16 @@ type
     function ToXML: String;
   end;
 
+  THDHRUtils = class abstract
+  private
+    const
+      cDeviceIDLookupTable: array[0..15] of Byte = ($0A, $05, $0F, $06, $07, $0C, $01, $0B, $09, $02, $08, $0D, $04, $03, $0E, $00);
+  public
+    class function ValidateDeviceID(const aDeviceID: UInt32): Boolean; static;
+    class function CorrectDeviceID(const aDeviceID: UInt32): UInt32; static;
+    class function CreateDeviceID: UInt32; static;
+  end;
+
 implementation
 
 { TDiscoverResponse }
@@ -211,13 +238,13 @@ constructor TDiscoverResponse.Create;
 begin
   // {"FriendlyName":"HDHomeRun PRIME","ModelNumber":"HDHR3-CC","FirmwareName":"hdhomerun3_cablecard","FirmwareVersion":"20160630atest2","DeviceID":"FFFFFFFF","DeviceAuth":"FFFFFFFF","TunerCount":3,"ConditionalAccess":1,"BaseURL":"http://192.168.1.182:80","LineupURL":"http://192.168.1.182:80/lineup.json"}
   fFriendlyName := 'HDHomeRun PRIME';
-  fManufacturor := 'Silicondust';
+//  fManufacturor := 'Silicondust';
   fModelNumber := 'HDHR3-CC';
   fFirmwareName := 'hdhomerun3_cablecard';
-  fTunerCount := 4;
+  fTunerCount := 3;
   fFirmwareVersion := '20160630atest2';
   fDeviceID := 'FFFFFFFF';
-  fDeviceAuth := 'FFFFFFFF';
+  fDeviceAuth := 'abcdefg';
   fBaseURL := 'http://192.168.1.116:80';
   fLineupURL := 'http://192.168.1.116:80/lineup.json';
 end;
@@ -492,24 +519,36 @@ class function TPacket.FromDiscovery(const aRequest: Boolean;
 var
   lTags: TTagArray;
 begin
-  SetLength(lTags, 6);
-  lTags[0]._Type := HDHOMERUN_TAG_DEVICE_TYPE;
-  lTags[0].ValueAsUInt32 := aData.DeviceType;
+  if aRequest then
+  begin
+    SetLength(lTags, 2);
+    lTags[0]._Type := HDHOMERUN_TAG_DEVICE_TYPE;
+    lTags[0].ValueAsUInt32 := aData.DeviceType;
 
-  lTags[1]._Type := HDHOMERUN_TAG_DEVICE_ID;
-  lTags[1].ValueAsUInt32 := aData.DeviceID;
+    lTags[1]._Type := HDHOMERUN_TAG_DEVICE_ID;
+    lTags[1].ValueAsUInt32 := aData.DeviceID;
+  end
+  else
+  begin
+    SetLength(lTags, 6);
+    lTags[0]._Type := HDHOMERUN_TAG_DEVICE_TYPE;
+    lTags[0].ValueAsUInt32 := aData.DeviceType;
 
-  lTags[2]._Type := HDHOMERUN_TAG_DEVICE_AUTH_STR;
-  lTags[2].ValueAsAnsiString := aData.DeviceAuthStr;
+    lTags[1]._Type := HDHOMERUN_TAG_DEVICE_ID;
+    lTags[1].ValueAsUInt32 := aData.DeviceID;
 
-  lTags[3]._Type := HDHOMERUN_TAG_TUNER_COUNT;
-  lTags[3].ValueAsUInt8 := aData.TunerCount;
+    lTags[2]._Type := HDHOMERUN_TAG_DEVICE_AUTH_STR;
+    lTags[2].ValueAsAnsiString := aData.DeviceAuthStr;
 
-  lTags[4]._Type := HDHOMERUN_TAG_BASE_URL;
-  lTags[4].ValueAsAnsiString := aData.BaseURL;
+    lTags[3]._Type := HDHOMERUN_TAG_TUNER_COUNT;
+    lTags[3].ValueAsUInt8 := aData.TunerCount;
 
-  lTags[5]._Type := HDHOMERUN_TAG_LINEUP_URL;
-  lTags[5].ValueAsAnsiString := aData.LineupURL;
+    lTags[4]._Type := HDHOMERUN_TAG_BASE_URL;
+    lTags[4].ValueAsAnsiString := aData.BaseURL;
+
+    lTags[5]._Type := HDHOMERUN_TAG_LINEUP_URL;
+    lTags[5].ValueAsAnsiString := aData.LineupURL;
+  end;
 
   Result := Default(TPacket);
   if aRequest then
@@ -558,6 +597,47 @@ end;
 function TPacket.IsValid: Boolean;
 begin
   Result := fCRC = CalcCRC;
+end;
+
+{ THDHRUtils }
+
+class function THDHRUtils.CorrectDeviceID(const aDeviceID: UInt32): UInt32;
+begin
+  Result := 0;
+  Result := Result xor cDeviceIDLookupTable[(aDeviceID shr 28) and $0F];
+  Result := Result xor ((aDeviceID shr 24) and $0F);
+  Result := Result xor cDeviceIDLookupTable[(aDeviceID shr 20) and $0F];
+  Result := Result xor ((aDeviceID shr 16) and $0F);
+  Result := Result xor cDeviceIDLookupTable[(12 shr 20) and $0F];
+  Result := Result xor ((aDeviceID shr 8) and $0F);
+  Result := Result xor cDeviceIDLookupTable[(aDeviceID shr 4) and $0F];
+//  Result := Result xor ((aDeviceID shr 0) and $0F);
+
+  Result := Result or (aDeviceID and $FFFFFFF0);
+end;
+
+class function THDHRUtils.ValidateDeviceID(const aDeviceID: UInt32): Boolean;
+var
+  lChecksum: UInt32;
+begin
+  lChecksum := 0;
+  lChecksum := lChecksum xor cDeviceIDLookupTable[(aDeviceID shr 28) and $0F];
+  lChecksum := lChecksum xor ((aDeviceID shr 24) and $0F);
+  lChecksum := lChecksum xor cDeviceIDLookupTable[(aDeviceID shr 20) and $0F];
+  lChecksum := lChecksum xor ((aDeviceID shr 16) and $0F);
+  lChecksum := lChecksum xor cDeviceIDLookupTable[(12 shr 20) and $0F];
+  lChecksum := lChecksum xor ((aDeviceID shr 8) and $0F);
+  lChecksum := lChecksum xor cDeviceIDLookupTable[(aDeviceID shr 4) and $0F];
+  lChecksum := lChecksum xor ((aDeviceID shr 0) and $0F);
+
+  Result := lChecksum = 0;
+end;
+
+class function THDHRUtils.CreateDeviceID: UInt32;
+begin
+  // $131 seems to be prefix for HDHomeRun PRIME
+  Result := UInt32(Random(Integer($FFFFF))+1) or $13100000;
+  Result := THDHRUtils.CorrectDeviceID(Result);
 end;
 
 end.

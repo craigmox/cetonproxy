@@ -32,6 +32,16 @@ object ProxyWebModule: TProxyWebModule
       Name = 'TunerAction'
       PathInfo = '/tuner[0-99]/v*'
       OnAction = ProxyWebModuleTunerActionAction
+    end
+    item
+      Name = 'LineupStatusAction'
+      PathInfo = '/lineup_status.json'
+      OnAction = ProxyWebModuleLineupStatusActionAction
+    end
+    item
+      Name = 'DeviceXMLAction'
+      PathInfo = '/device.xml'
+      OnAction = ProxyWebModuleDeviceXMLActionAction
     end>
   Height = 333
   Width = 414

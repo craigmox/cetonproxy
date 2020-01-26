@@ -45,6 +45,7 @@ type
     fChannelMap: TChannelMap;
     fTunerAddress: String;
     fListenIP: String;
+    fTunerCount: Integer;
   public
     constructor Create;
     destructor Destroy; override;
@@ -202,6 +203,7 @@ type
     class function WaitForVar(const aClient: TRestClient; const aTunerID: Integer; const aServiceName, aVarName: String; const aTries: Integer; const aWaitMs: Integer; const aValidateValueCallback: TValidateValueCallback): String; static;
     class function VarMatches(const aValue: String): TValidateValueCallback; static;
     class function VarContains(const aValue: String): TValidateValueCallback; static;
+    class function GetTunerCount(const aClient: TRestClient): Integer; static;
   end;
 
   TTunerStats = record
@@ -282,6 +284,7 @@ type
     procedure NeedClient;
 
     function GetListenIP: String;
+    function GetTunerCount: Integer;
   public
     constructor Create;
     destructor Destroy; override;
@@ -300,6 +303,7 @@ type
     function GetTunerStats: TTunerStatsArray;
 
     property ListenIP: String read GetListenIP;
+    property TunerCount: Integer read GetTunerCount;
   end;
 
   TCetonVideoStream = class(TStream)
@@ -762,6 +766,33 @@ begin
     end;
 end;
 
+class function TREST.GetTunerCount(const aClient: TRestClient): Integer;
+var
+  lRequest: TRESTRequest;
+begin
+  Log.d('Checking tuner count');
+
+  lRequest := TRESTRequest.Create(nil);
+  try
+    lRequest.Timeout := 1500;
+
+    lRequest.Client := aClient;
+    lRequest.Method := TRESTRequestMethod.rmGet;
+    lRequest.Resource := 'Services/6/Status.html';
+
+    lRequest.Execute;
+
+    if lRequest.Response.StatusCode = 404 then
+      Result := 4
+    else
+      Result := 6;
+  finally
+    lRequest.Free;
+  end;
+
+  Log.d('Determined tuner count: %d', [Result]);
+end;
+
 { TTunerList }
 
 constructor TTunerList.Create;
@@ -1062,8 +1093,13 @@ begin
       fConfig.Assign(aConfig, aExcludeSections);
       fClient := TRESTClient.Create(Format('http://%s', [fConfig.TunerAddress]));
 
-      // TODO: Request tuner count from Ceton
-      fTunerList.Count := 6;
+      try
+        fTunerList.Count := TREST.GetTunerCount(fClient);
+      except
+        Log.d('Unable to reach tuner at %s', [fConfig.TunerAddress]);
+        fTunerList.Count := 0;
+        FreeAndNil(fClient);
+      end;
     end
     else
       fConfig.Assign(aConfig, aExcludeSections);
@@ -1119,6 +1155,16 @@ procedure TCetonClient.NeedClient;
 begin
   if not Assigned(fClient) then
     raise ECetonError.Create('Tuner address has not been configured');
+end;
+
+function TCetonClient.GetTunerCount: Integer;
+begin
+  Lock;
+  try
+    Result := fTunerList.Count;
+  finally
+    Unlock;
+  end;
 end;
 
 { TStartStopStreamRequest }
@@ -1433,6 +1479,7 @@ begin
     lDest.fChannelMap.Assign(fChannelMap, TCetonConfigSection.Channels in aExcludeSections);
     lDest.fTunerAddress := fTunerAddress;
     lDest.fListenIP := fListenIP;
+    lDest.fTunerCount := fTunerCount;
   end
   else
     inherited AssignTo(Dest);
