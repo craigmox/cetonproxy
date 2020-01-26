@@ -221,6 +221,7 @@ begin
         IP := lListenIP;
         Port := SSDP_PORT;
       end;
+      fSSDPClient.ReuseSocket := rsTrue;
       fSSDPClient.Active := True;
     except
       Log.d('Unable to bind SSDP listening port');
