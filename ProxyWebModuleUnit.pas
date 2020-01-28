@@ -291,6 +291,7 @@ var
   lCetonConfig: TCetonConfig;
   lRequestChannels: Boolean;
   lListenIP: String;
+  lPort: Integer;
   lChannelMap: TChannelMap;
 begin
   ConfigManager.LockConfig(lConfig);
@@ -327,6 +328,7 @@ begin
 
     ConfigManager.LockConfig(lConfig);
     try
+      lPort := lConfig.HTTPPort;
       lChannelMap.Assign(lConfig.Ceton.ChannelMap, False);
     finally
       ConfigManager.UnlockConfig(lConfig);
@@ -336,7 +338,7 @@ begin
     begin
       lChannelMapItem := lChannelMap[i];
       if lChannelMapItem.Visible then
-        aLineup.Add(IntToStr(lChannelMapItem.Channel), lChannelMapItem.Name, Format('http://%s/auto/v%d', [lListenIP, lChannelMapItem.Channel]));
+        aLineup.Add(IntToStr(lChannelMapItem.Channel), lChannelMapItem.Name, Format('http://%s:%d/auto/v%d', [lListenIP, lPort, lChannelMapItem.Channel]));
     end;
   finally
     lChannelMap.Free;
