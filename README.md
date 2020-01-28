@@ -7,14 +7,15 @@ An app that allows a Ceton InfiniTV network tuner to appear as a SiliconDust HDH
 
 # Install
 
-1. Download the latest release zip and extract to a folder.
-2. Run cetonproxy.exe.
-3. Fill in `Ceton tuner address` with the IP to your ceton tuner device.
-4. Fill in the two `Listen IP` settings according to the following section.
-5. Leave `Listen HTTP Port` set to `5004`.
-6. Click `Edit Channels` for it to request the channel list from the Ceton.
-7. Click the checkmark next to the channels you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
-8. It should now be discoverable as an HDHomeRun device in your DVR software.  
+1. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
+2. Extract the contents of the zip file to a new folder of your choice.
+3. Run cetonproxy.exe.
+4. Fill in `Ceton tuner address` with the IP to your ceton tuner device.
+5. Fill in the two `Listen IP` settings according to the following section.
+6. Leave `Listen HTTP Port` set to `5004`.
+7. Click `Edit Channels` for it to request the channel list from the Ceton.
+8. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
+9. It should now be discoverable as an HDHomeRun device in your DVR software.  
 
 ## Configuring Listen IPs
 ### Network Ceton device
