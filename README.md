@@ -4,9 +4,11 @@ An app that allows a Ceton InfiniTV network tuner to appear as a SiliconDust HDH
 ## Supported DVR software:
 - NextPVR v5
 - Plex
+- Emby
 
 # Install
 
+1. If you have a network Ceton device, you do not need any drivers installed.  But if you have a PCI device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).
 1. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
 2. Extract the contents of the zip file to a new folder of your choice.
 3. Run cetonproxy.exe.
