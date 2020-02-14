@@ -243,6 +243,8 @@ end;
 
 procedure TProxyWebModule.HandleException;
 begin
+  Log.D('Service handler error: %s', [Exception(ExceptObject).Message]);
+
   // Send the response ourselves in an exception handler that eats all exceptions to
   // prevent the default handler from doing it and showing an error message box
   if not Response.Sent then
