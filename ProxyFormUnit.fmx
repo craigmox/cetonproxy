@@ -2,8 +2,8 @@ object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Ceton HDHomeRun Proxy'
-  ClientHeight = 754
-  ClientWidth = 435
+  ClientHeight = 782
+  ClientWidth = 466
   Fill.Kind = Solid
   Position = ScreenCenter
   StyleBook = StyleBook1
@@ -16,19 +16,19 @@ object MainForm: TMainForm
   DesignerMasterStyle = 0
   object VertScrollBox1: TVertScrollBox
     Align = Contents
-    Size.Width = 435.000000000000000000
-    Size.Height = 754.000000000000000000
+    Size.Width = 466.000000000000000000
+    Size.Height = 782.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
-    Viewport.Width = 435.000000000000000000
-    Viewport.Height = 754.000000000000000000
+    Viewport.Width = 466.000000000000000000
+    Viewport.Height = 782.000000000000000000
     object gbGroup: TGroupBox
       Align = Top
       Padding.Left = 15.000000000000000000
       Padding.Top = 20.000000000000000000
       Padding.Right = 10.000000000000000000
       Position.Y = 141.000000000000000000
-      Size.Width = 435.000000000000000000
+      Size.Width = 466.000000000000000000
       Size.Height = 280.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
@@ -49,7 +49,7 @@ object MainForm: TMainForm
         Align = Client
         Enabled = False
         Margins.Bottom = 35.000000000000000000
-        Size.Width = 410.000000000000000000
+        Size.Width = 441.000000000000000000
         Size.Height = 225.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 2
@@ -59,12 +59,12 @@ object MainForm: TMainForm
         DefaultItemStyles.GroupFooterStyle = ''
         ShowCheckboxes = True
         OnChangeCheck = lbChannelsChangeCheck
-        Viewport.Width = 406.000000000000000000
+        Viewport.Width = 437.000000000000000000
         Viewport.Height = 221.000000000000000000
       end
       object btnRefreshChannels: TButton
         Anchors = [akRight, akBottom]
-        Position.X = 320.000000000000000000
+        Position.X = 351.000000000000000000
         Position.Y = 250.000000000000000000
         Size.Width = 106.000000000000000000
         Size.Height = 22.000000000000000000
@@ -74,6 +74,7 @@ object MainForm: TMainForm
         OnClick = btnRefreshChannelsClick
       end
       object lblSelectedChannels: TLabel
+        Anchors = [akLeft, akBottom]
         Position.X = 125.000000000000000000
         Position.Y = 253.000000000000000000
         Size.Width = 180.000000000000000000
@@ -84,7 +85,7 @@ object MainForm: TMainForm
     end
     object gbSettings: TGroupBox
       Align = Top
-      Size.Width = 435.000000000000000000
+      Size.Width = 466.000000000000000000
       Size.Height = 141.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
@@ -92,8 +93,8 @@ object MainForm: TMainForm
       TabOrder = 2
       object eCetonTunerAddress: TEdit
         Touch.InteractiveGestures = [LongTap, DoubleTap]
-        TabOrder = 3
-        Position.X = 226.000000000000000000
+        TabOrder = 1
+        Position.X = 210.000000000000000000
         Position.Y = 23.000000000000000000
         Size.Width = 143.000000000000000000
         Size.Height = 22.000000000000000000
@@ -104,23 +105,13 @@ object MainForm: TMainForm
         Position.X = 15.000000000000000000
         Position.Y = 26.000000000000000000
         Text = 'Ceton tuner address:'
-        TabOrder = 7
+        TabOrder = 5
       end
       object Label2: TLabel
         Position.X = 15.000000000000000000
         Position.Y = 52.000000000000000000
         Text = 'Listen IP for Ceton:'
-        TabOrder = 6
-      end
-      object eCetonListenIP: TEdit
-        Touch.InteractiveGestures = [LongTap, DoubleTap]
-        TabOrder = 2
-        Position.X = 226.000000000000000000
-        Position.Y = 49.000000000000000000
-        Size.Width = 143.000000000000000000
-        Size.Height = 22.000000000000000000
-        Size.PlatformDefault = False
-        OnChangeTracking = eCetonListenIPChangeTracking
+        TabOrder = 4
       end
       object Label3: TLabel
         Position.X = 15.000000000000000000
@@ -129,27 +120,17 @@ object MainForm: TMainForm
         Size.Height = 17.000000000000000000
         Size.PlatformDefault = False
         Text = 'Listen HTTP Port as HDHomeRun:'
-        TabOrder = 5
+        TabOrder = 3
       end
       object eHDHRListenHTTPPort: TEdit
         Touch.InteractiveGestures = [LongTap, DoubleTap]
         TabOrder = 0
-        Position.X = 226.000000000000000000
+        Position.X = 210.000000000000000000
         Position.Y = 109.000000000000000000
-        Size.Width = 143.000000000000000000
+        Size.Width = 71.000000000000000000
         Size.Height = 22.000000000000000000
         Size.PlatformDefault = False
         OnChangeTracking = eHDHRListenHTTPPortChangeTracking
-      end
-      object eHDHRListenIP: TEdit
-        Touch.InteractiveGestures = [LongTap, DoubleTap]
-        TabOrder = 1
-        Position.X = 226.000000000000000000
-        Position.Y = 83.000000000000000000
-        Size.Width = 143.000000000000000000
-        Size.Height = 22.000000000000000000
-        Size.PlatformDefault = False
-        OnChangeTracking = eHDHRListenIPChangeTracking
       end
       object Label4: TLabel
         Position.X = 15.000000000000000000
@@ -158,7 +139,31 @@ object MainForm: TMainForm
         Size.Height = 17.000000000000000000
         Size.PlatformDefault = False
         Text = 'Listen IP as HDHomeRun:'
-        TabOrder = 4
+        TabOrder = 2
+      end
+      object ceCetonListenIP: TComboEdit
+        Touch.InteractiveGestures = [LongTap, DoubleTap]
+        TabOrder = 7
+        ItemHeight = 19.000000000000000000
+        ItemIndex = 0
+        Position.X = 210.000000000000000000
+        Position.Y = 49.000000000000000000
+        Size.Width = 231.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
+        OnChangeTracking = ceCetonListenIPChangeTracking
+      end
+      object ceHDHRListenIP: TComboEdit
+        Touch.InteractiveGestures = [LongTap, DoubleTap]
+        TabOrder = 6
+        ItemHeight = 19.000000000000000000
+        ItemIndex = -1
+        Position.X = 210.000000000000000000
+        Position.Y = 83.000000000000000000
+        Size.Width = 231.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
+        OnChangeTracking = ceHDHRListenIPChangeTracking
       end
     end
     object gbStats: TGroupBox
@@ -168,7 +173,7 @@ object MainForm: TMainForm
       Padding.Right = 10.000000000000000000
       Padding.Bottom = 10.000000000000000000
       Position.Y = 429.000000000000000000
-      Size.Width = 435.000000000000000000
+      Size.Width = 466.000000000000000000
       Size.Height = 311.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
@@ -181,7 +186,7 @@ object MainForm: TMainForm
         FooterAppearanceClassName = 'TListHeaderObjects'
         EditMode = True
         Align = Client
-        Size.Width = 410.000000000000000000
+        Size.Width = 441.000000000000000000
         Size.Height = 281.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 1
@@ -192,7 +197,7 @@ object MainForm: TMainForm
       Cursor = crVSplit
       MinSize = 20.000000000000000000
       Position.Y = 421.000000000000000000
-      Size.Width = 435.000000000000000000
+      Size.Width = 466.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False
     end
@@ -201,7 +206,7 @@ object MainForm: TMainForm
       Cursor = crVSplit
       MinSize = 20.000000000000000000
       Position.Y = 740.000000000000000000
-      Size.Width = 435.000000000000000000
+      Size.Width = 466.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False
     end

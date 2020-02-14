@@ -11,8 +11,15 @@ uses
   System.Diagnostics,
   System.IOUtils,
   System.Math,
+  System.Generics.Collections,
+
   WinApi.Windows,
   Winapi.ShellApi,
+  Winapi.IpHlpApi,
+  Winapi.IpTypes,
+  Winapi.IpExport,
+  Winapi.WinSock,
+
   FMX.Types,
   FMX.Graphics,
   FMX.Controls,
@@ -22,6 +29,7 @@ uses
   FMX.Edit,
   FMX.Controls.Presentation,
   FMX.EditBox,
+  FMX.ComboEdit,
   FMX.NumberBox,
   FMX.Layouts,
   FMX.ListBox,
@@ -68,13 +76,11 @@ type
     Label1: TLabel;
     SaveTimer: TTimer;
     Label2: TLabel;
-    eCetonListenIP: TEdit;
     btnRefreshChannels: TButton;
     lbStats: TListView;
     Splitter2: TSplitter;
     Label3: TLabel;
     eHDHRListenHTTPPort: TEdit;
-    eHDHRListenIP: TEdit;
     Label4: TLabel;
     GroupBox1: TGroupBox;
     Splitter3: TSplitter;
@@ -82,17 +88,19 @@ type
     Label5: TLabel;
     btnDebugDiscoveryRequest: TButton;
     lblSelectedChannels: TLabel;
+    ceCetonListenIP: TComboEdit;
+    ceHDHRListenIP: TComboEdit;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
     procedure btnEditChannelsClick(Sender: TObject);
     procedure SaveTimerTimer(Sender: TObject);
     procedure FormShow(Sender: TObject);
-    procedure eCetonListenIPChangeTracking(Sender: TObject);
+    procedure ceCetonListenIPChangeTracking(Sender: TObject);
     procedure eCetonTunerAddressChangeTracking(Sender: TObject);
     procedure btnRefreshChannelsClick(Sender: TObject);
     procedure eHDHRListenHTTPPortChangeTracking(Sender: TObject);
-    procedure eHDHRListenIPChangeTracking(Sender: TObject);
+    procedure ceHDHRListenIPChangeTracking(Sender: TObject);
     procedure btnDebugDiscoveryRequestClick(Sender: TObject);
   private
     { Private declarations }
@@ -104,6 +112,11 @@ type
     fSaveSections: TServiceConfigSections;
 
     function GetClient: TCetonClient;
+
+    function GetLocalIPs: TArray<String>; overload;
+    procedure GetLocalIPs(const aComboEdit: TComboEdit); overload;
+
+    function ExtractIP(const aComboEdit: TComboEdit): String;
 
     procedure BeginInterfaceUpdate;
     procedure EndInterfaceUpdate;
@@ -197,6 +210,9 @@ procedure TMainForm.FormCreate(Sender: TObject);
 begin
   fConfigManager := ProxyServiceModule.ConfigManager;
   fConfigManager.AddListener(Self);
+
+  GetLocalIPs(ceCetonListenIP);
+  GetLocalIPs(ceHDHRListenIP);
 
   ProxyServerModule.StartServer;
 end;
@@ -312,8 +328,8 @@ begin
     ConfigManager.LockConfig(lConfig);
     try
       eCetonTunerAddress.Text := lConfig.Ceton.TunerAddress;
-      eCetonListenIP.Text := lConfig.Ceton.ListenIP;
-      eHDHRListenIP.Text := lConfig.ListenIP;
+      ceCetonListenIP.Text := lConfig.Ceton.ListenIP;
+      ceHDHRListenIP.Text := lConfig.ListenIP;
       eHDHRListenHTTPPort.Text := IntToStr(lConfig.HTTPPort);
     finally
       ConfigManager.UnlockConfig(lConfig);
@@ -386,7 +402,7 @@ begin
   UpdateInterface;
 end;
 
-procedure TMainForm.eCetonListenIPChangeTracking(Sender: TObject);
+procedure TMainForm.ceCetonListenIPChangeTracking(Sender: TObject);
 var
   lConfig: TServiceConfig;
 begin
@@ -394,7 +410,7 @@ begin
   begin
     ConfigManager.LockConfig(lConfig);
     try
-      lConfig.Ceton.ListenIP := eCetonListenIP.Text;
+      lConfig.Ceton.ListenIP := ExtractIP(ceCetonListenIP);
     finally
       ConfigManager.UnlockConfig(lConfig);
     end;
@@ -500,7 +516,7 @@ begin
   end;
 end;
 
-procedure TMainForm.eHDHRListenIPChangeTracking(Sender: TObject);
+procedure TMainForm.ceHDHRListenIPChangeTracking(Sender: TObject);
 var
   lConfig: TServiceConfig;
 begin
@@ -508,7 +524,7 @@ begin
   begin
     ConfigManager.LockConfig(lConfig);
     try
-      lConfig.ListenIP := eHDHRListenIP.Text;
+      lConfig.ListenIP := ExtractIP(ceHDHRListenIP);
     finally
       ConfigManager.UnlockConfig(lConfig);
     end;
@@ -547,6 +563,79 @@ begin
   end
   else
     lblSelectedChannels.Text := '';
+end;
+
+function TMainForm.GetLocalIPs: TArray<String>;
+var
+  lAdapterAddresses, lCurAdapterAddress: PIP_ADAPTER_ADDRESSES;
+  lSize: ULONG;
+  lList: TList<String>;
+  lIP: String;
+  lCurAddress: PIP_ADAPTER_UNICAST_ADDRESS;
+begin
+  lAdapterAddresses := nil;
+  lSize := 0;
+  GetAdaptersAddresses(AF_INET, 0, nil, lAdapterAddresses, @lSize);
+  if lSize > 0 then
+  begin
+    GetMem(lAdapterAddresses, lSize);
+    try
+      if GetAdaptersAddresses(AF_INET, 0, nil, lAdapterAddresses, @lSize) = ERROR_SUCCESS then
+      begin
+        lList := TList<String>.Create;
+        try
+          lCurAdapterAddress := lAdapterAddresses;
+          while Assigned(lCurAdapterAddress) do
+          begin
+            if lCurAdapterAddress.IfType = 6 {ETHERNET} then
+            begin
+              lCurAddress := lCurAdapterAddress.FirstUnicastAddress;
+              while Assigned(lCurAddress) do
+              begin
+                if Assigned(lCurAddress.Address.lpSockaddr) then
+                begin
+                  lIP := String(inet_ntoa(lCurAddress.Address.lpSockaddr.sin_addr));
+                  lList.Add(Format('%s (%s)', [lIP, WideString(lCurAdapterAddress.FriendlyName)]));
+                end;
+
+                lCurAddress := lCurAddress.Next;
+              end;
+            end;
+            lCurAdapterAddress := lCurAdapterAddress.Next;
+          end;
+
+          Result := lList.ToArray;
+        finally
+          lList.Free;
+        end;
+      end;
+    finally
+      FreeMem(lAdapterAddresses, lSize);
+    end;
+  end;
+end;
+
+procedure TMainForm.GetLocalIPs(const aComboEdit: TComboEdit);
+begin
+  aComboEdit.Items.Clear;
+  aComboEdit.Items.AddStrings(GetLocalIPs);
+  aComboEdit.RecalcSize;
+end;
+
+function TMainForm.ExtractIP(const aComboEdit: TComboEdit): String;
+begin
+  Result := aComboEdit.Text;
+  if Result.Contains('(') then
+    Result := Result.Substring(0, Result.IndexOf('(')-1);
+  if aComboEdit.Text <> Result then
+  begin
+    BeginInterfaceUpdate;
+    try
+      aComboEdit.Text := Result;
+    finally
+      EndInterfaceUpdate;
+    end;
+  end;
 end;
 
 end.
