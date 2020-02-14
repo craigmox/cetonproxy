@@ -946,7 +946,7 @@ begin
             TREST.WaitForVar(fClient, aViewer.TunerIndex, 'tuner', 'Frequency', 5, 1000, TREST.VarMatches(IntToStr(lChannel.Frequency)));
             TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
 
-            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+//            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
 
     //        TREST.TuneProgram(fClient, aViewer.TunerIndex, lChannel.ItemProgram);
     //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
