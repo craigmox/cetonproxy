@@ -767,12 +767,20 @@ begin
 end;
 
 class function TREST.GetTunerCount(const aClient: TRestClient): Integer;
-var
-  lRequest: TRESTRequest;
+//var
+//  lRequest: TRESTRequest;
 begin
   Log.d('Checking tuner count');
 
-  lRequest := TRESTRequest.Create(nil);
+  // A 4 tuner PCI card still seems to respond to information requests for tuners 5
+  // and 6.  But one difference I saw is that DescramblingStatus is (null) on
+  // nonexistant tuners, so using this for now.
+  if SameText(TREST.GetVar(aClient, 5, 'cas', 'DescramblingStatus'), '(null)') then
+    Result := 4
+  else
+    Result := 6;
+
+{  lRequest := TRESTRequest.Create(nil);
   try
     lRequest.Timeout := 1500;
 
@@ -788,7 +796,7 @@ begin
       Result := 6;
   finally
     lRequest.Free;
-  end;
+  end;}
 
   Log.d('Determined tuner count: %d', [Result]);
 end;
