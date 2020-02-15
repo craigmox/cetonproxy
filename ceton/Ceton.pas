@@ -318,7 +318,7 @@ type
     function ConverterRead(const aBuf: PByte; const aSize: Integer): Integer;
     function ConverterWrite(const aBuf: PByte; const aSize: Integer): Integer;
   public
-    constructor Create(const aClient: TCetonClient; const aTuner: Integer; const aChannel: Integer); reintroduce;
+    constructor Create(const aClient: TCetonClient; const aTuner: Integer; const aChannel: Integer; const aRemux: Boolean = True); reintroduce;
     destructor Destroy; override;
 
     function Read(var Buffer; Count: Longint): Longint; override;
@@ -1362,7 +1362,7 @@ begin
 end;
 
 constructor TCetonVideoStream.Create(const aClient: TCetonClient;
-  const aTuner: Integer; const aChannel: Integer);
+  const aTuner: Integer; const aChannel: Integer; const aRemux: Boolean);
 var
   lChannel: TChannelMapItem;
 begin
@@ -1373,17 +1373,20 @@ begin
 
   fClient.StartStream(aTuner, aChannel, fViewer);
 
-  lChannel := TChannelMapItem.Create;
-  try
-    if fClient.TryGetChannel(aChannel, lChannel) then
-    begin
-      fConverter := TVideoConverter.Create;
-      fConverter.OnRead := ConverterRead;
-      fConverter.OnWrite := ConverterWrite;
-      fConverter.ProgramFilter := lChannel.ItemProgram;
+  if aRemux then
+  begin
+    lChannel := TChannelMapItem.Create;
+    try
+      if fClient.TryGetChannel(aChannel, lChannel) then
+      begin
+        fConverter := TVideoConverter.Create;
+        fConverter.OnRead := ConverterRead;
+        fConverter.OnWrite := ConverterWrite;
+        fConverter.ProgramFilter := lChannel.ItemProgram;
+      end;
+    finally
+      lChannel.Free;
     end;
-  finally
-    lChannel.Free;
   end;
 end;
 

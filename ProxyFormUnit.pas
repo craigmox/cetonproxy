@@ -38,6 +38,8 @@ uses
   FMX.ListView.Appearances,
   FMX.ListView.Adapters.Base,
   FMX.ListView,
+  FMX.SpinBox, 
+  FMX.Menus,
   REST.json,
   REST.Client,
 
@@ -82,14 +84,16 @@ type
     Label3: TLabel;
     eHDHRListenHTTPPort: TEdit;
     Label4: TLabel;
-    GroupBox1: TGroupBox;
-    Splitter3: TSplitter;
-    eDebugIP: TEdit;
+    gbDebug: TGroupBox;
+    DebugSplitter: TSplitter;
     Label5: TLabel;
-    btnDebugDiscoveryRequest: TButton;
+    btnGetVideoSample: TButton;
     lblSelectedChannels: TLabel;
     ceCetonListenIP: TComboEdit;
     ceHDHRListenIP: TComboEdit;
+    seChannel: TSpinBox;
+    DebugMenu: TPopupMenu;
+    MenuItem1: TMenuItem;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
@@ -101,7 +105,8 @@ type
     procedure btnRefreshChannelsClick(Sender: TObject);
     procedure eHDHRListenHTTPPortChangeTracking(Sender: TObject);
     procedure ceHDHRListenIPChangeTracking(Sender: TObject);
-    procedure btnDebugDiscoveryRequestClick(Sender: TObject);
+    procedure btnGetVideoSampleClick(Sender: TObject);
+    procedure MenuItem1Click(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -208,6 +213,9 @@ end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 begin
+  gbDebug.Visible := FindCmdLineSwitch('debug');
+  DebugSplitter.Visible := gbDebug.Visible;
+
   fConfigManager := ProxyServiceModule.ConfigManager;
   fConfigManager.AddListener(Self);
 
@@ -533,20 +541,6 @@ begin
   end;
 end;
 
-procedure TMainForm.btnDebugDiscoveryRequestClick(Sender: TObject);
-var
-  lDiscovery: TDiscoveryData;
-  lBytes: TBytes;
-begin
-  lDiscovery.DeviceType := HDHOMERUN_DEVICE_TYPE_TUNER;
-  lDiscovery.DeviceID := HDHOMERUN_DEVICE_ID_WILDCARD;
-
-  lBytes := TPacket.FromDiscovery(True, lDiscovery).ToBytes;
-
-  ProxyServerModule.DiscoveryServer.SendBuffer(eDebugIP.Text, HDHR_DISCOVERY_PORT, TIdBytes(lBytes));
-//  ProxyServerModule.DiscoveryServer.Broadcast(TIdBytes(lBytes), HDHR_DISCOVERY_PORT);
-end;
-
 procedure TMainForm.UpdateChannelCount;
 var
   i, lChannelCount: Integer;
@@ -636,6 +630,55 @@ begin
       EndInterfaceUpdate;
     end;
   end;
+end;
+
+procedure TMainForm.btnGetVideoSampleClick(Sender: TObject);
+var
+  lStream: TCetonVideoStream;
+  lStopWatch: TStopWatch;
+  lBuffer: array[0..8191] of Byte;
+  lSize: Integer;
+  lFS: TFileStream;
+  lChannel: TChannelMapItem;
+  lFilename: String;
+begin
+  lFilename := 'Sample.ts';
+
+  lChannel := TChannelMapItem.Create;
+  try
+    if Client.TryGetChannel(Round(seChannel.Value), lChannel) then
+    begin
+      lFilename := Format('SampleCh%dP%d.ts', [lChannel.Channel, lChannel.ItemProgram]);
+    end;
+  finally
+    lChannel.Free;
+  end;
+
+  lFS := TFile.Create(ExtractFilePath(ParamStr(0))+lFilename);
+  try
+    lStream := TCetonVideoStream.Create(Client, -1, Round(seChannel.Value), False);
+    try
+      lStopWatch := TStopWatch.StartNew;
+      while lStopWatch.ElapsedMilliseconds <= 6000 do
+      begin
+        lSize := lStream.Read(lBuffer, SizeOf(lBuffer));
+        if lSize = 0 then
+          Break;
+
+        lFS.WriteBuffer(lBuffer, lSize);
+      end;
+    finally
+      lStream.Free;
+    end;
+  finally
+    lFS.Free;
+  end;
+end;
+
+procedure TMainForm.MenuItem1Click(Sender: TObject);
+begin
+  gbDebug.Visible := True;
+  DebugSplitter.Visible := True;
 end;
 
 end.

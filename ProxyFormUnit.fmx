@@ -2,7 +2,7 @@ object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Ceton HDHomeRun Proxy'
-  ClientHeight = 782
+  ClientHeight = 762
   ClientWidth = 466
   Fill.Kind = Solid
   Position = ScreenCenter
@@ -17,18 +17,18 @@ object MainForm: TMainForm
   object VertScrollBox1: TVertScrollBox
     Align = Contents
     Size.Width = 466.000000000000000000
-    Size.Height = 782.000000000000000000
+    Size.Height = 762.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
-    Viewport.Width = 466.000000000000000000
-    Viewport.Height = 782.000000000000000000
+    Viewport.Width = 450.000000000000000000
+    Viewport.Height = 762.000000000000000000
     object gbGroup: TGroupBox
       Align = Top
       Padding.Left = 15.000000000000000000
       Padding.Top = 20.000000000000000000
       Padding.Right = 10.000000000000000000
       Position.Y = 141.000000000000000000
-      Size.Width = 466.000000000000000000
+      Size.Width = 450.000000000000000000
       Size.Height = 280.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
@@ -49,7 +49,7 @@ object MainForm: TMainForm
         Align = Client
         Enabled = False
         Margins.Bottom = 35.000000000000000000
-        Size.Width = 441.000000000000000000
+        Size.Width = 425.000000000000000000
         Size.Height = 225.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 2
@@ -59,12 +59,12 @@ object MainForm: TMainForm
         DefaultItemStyles.GroupFooterStyle = ''
         ShowCheckboxes = True
         OnChangeCheck = lbChannelsChangeCheck
-        Viewport.Width = 437.000000000000000000
+        Viewport.Width = 421.000000000000000000
         Viewport.Height = 221.000000000000000000
       end
       object btnRefreshChannels: TButton
         Anchors = [akRight, akBottom]
-        Position.X = 351.000000000000000000
+        Position.X = 335.000000000000000000
         Position.Y = 250.000000000000000000
         Size.Width = 106.000000000000000000
         Size.Height = 22.000000000000000000
@@ -85,7 +85,7 @@ object MainForm: TMainForm
     end
     object gbSettings: TGroupBox
       Align = Top
-      Size.Width = 466.000000000000000000
+      Size.Width = 450.000000000000000000
       Size.Height = 141.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
@@ -145,7 +145,7 @@ object MainForm: TMainForm
         Touch.InteractiveGestures = [LongTap, DoubleTap]
         TabOrder = 7
         ItemHeight = 19.000000000000000000
-        ItemIndex = 0
+        ItemIndex = -1
         Position.X = 210.000000000000000000
         Position.Y = 49.000000000000000000
         Size.Width = 231.000000000000000000
@@ -172,8 +172,9 @@ object MainForm: TMainForm
       Padding.Top = 20.000000000000000000
       Padding.Right = 10.000000000000000000
       Padding.Bottom = 10.000000000000000000
+      PopupMenu = DebugMenu
       Position.Y = 429.000000000000000000
-      Size.Width = 466.000000000000000000
+      Size.Width = 450.000000000000000000
       Size.Height = 311.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
@@ -186,7 +187,7 @@ object MainForm: TMainForm
         FooterAppearanceClassName = 'TListHeaderObjects'
         EditMode = True
         Align = Client
-        Size.Width = 441.000000000000000000
+        Size.Width = 425.000000000000000000
         Size.Height = 281.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 1
@@ -197,7 +198,7 @@ object MainForm: TMainForm
       Cursor = crVSplit
       MinSize = 20.000000000000000000
       Position.Y = 421.000000000000000000
-      Size.Width = 466.000000000000000000
+      Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False
     end
@@ -206,58 +207,59 @@ object MainForm: TMainForm
       Cursor = crVSplit
       MinSize = 20.000000000000000000
       Position.Y = 740.000000000000000000
-      Size.Width = 466.000000000000000000
+      Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False
     end
-    object GroupBox1: TGroupBox
+    object gbDebug: TGroupBox
       Align = Top
       Position.Y = 748.000000000000000000
-      Size.Width = 435.000000000000000000
+      Size.Width = 450.000000000000000000
       Size.Height = 141.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
       Text = 'Debug'
-      Visible = False
       TabOrder = 1
-      object eDebugIP: TEdit
-        Touch.InteractiveGestures = [LongTap, DoubleTap]
-        TabOrder = 0
-        Position.X = 37.000000000000000000
-        Position.Y = 24.000000000000000000
-        Size.Width = 129.000000000000000000
-        Size.Height = 22.000000000000000000
-        Size.PlatformDefault = False
-      end
       object Label5: TLabel
         Position.X = 16.000000000000000000
         Position.Y = 27.000000000000000000
-        Size.Width = 17.000000000000000000
+        Size.Width = 89.000000000000000000
         Size.Height = 17.000000000000000000
         Size.PlatformDefault = False
-        Text = 'IP:'
-        TabOrder = 1
+        Text = 'Channel:'
+        TabOrder = 0
       end
-      object btnDebugDiscoveryRequest: TButton
-        Position.X = 16.000000000000000000
-        Position.Y = 56.000000000000000000
+      object btnGetVideoSample: TButton
+        Position.X = 168.000000000000000000
+        Position.Y = 24.000000000000000000
         Size.Width = 121.000000000000000000
         Size.Height = 22.000000000000000000
         Size.PlatformDefault = False
+        TabOrder = 1
+        Text = 'Get Video Sample'
+        OnClick = btnGetVideoSampleClick
+      end
+      object seChannel: TSpinBox
+        Touch.InteractiveGestures = [LongTap, DoubleTap]
         TabOrder = 2
-        Text = 'Discovery Request'
-        OnClick = btnDebugDiscoveryRequestClick
+        Cursor = crIBeam
+        Max = 10000.000000000000000000
+        RepeatClick = True
+        Position.X = 69.000000000000000000
+        Position.Y = 24.000000000000000000
+        Size.Width = 89.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
       end
     end
-    object Splitter3: TSplitter
+    object DebugSplitter: TSplitter
       Align = Top
       Cursor = crVSplit
       MinSize = 20.000000000000000000
-      Position.Y = 748.000000000000000000
-      Size.Width = 435.000000000000000000
+      Position.Y = 889.000000000000000000
+      Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False
-      Visible = False
     end
   end
   object StyleBook1: TStyleBook
@@ -310,5 +312,13 @@ object MainForm: TMainForm
     OnTimer = SaveTimerTimer
     Left = 104
     Top = 432
+  end
+  object DebugMenu: TPopupMenu
+    Left = 216
+    Top = 368
+    object MenuItem1: TMenuItem
+      Text = 'Enable Debug'
+      OnClick = MenuItem1Click
+    end
   end
 end
