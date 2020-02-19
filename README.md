@@ -8,16 +8,16 @@ An app that allows a Ceton InfiniTV PCI/network tuner to appear as a SiliconDust
 
 # Install
 
-1. If you have a network Ceton device, you do not need any drivers installed.  But if you have a PCI device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).
-1. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
-2. Extract the contents of the zip file to a new folder of your choice.
-3. Run cetonproxy.exe.
-4. Fill in `Ceton tuner address` with the IP to your ceton tuner device.
-5. Fill in the two `Listen IP` settings according to the following section.
-6. Leave `Listen HTTP Port` set to `5004`.
-7. Click `Edit Channels` for it to request the channel list from the Ceton.
-8. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
-9. It should now be discoverable as an HDHomeRun device in your DVR software.  
+1. If you have a network Ceton device, you do not need any drivers installed.  But if you have a PCI device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).  In either case, you do not need Windows Media Center.  Also, cetonproxy does not use BDA drivers which were removed from Windows 10 a while back, so it will work on the latest version of Windows 10.
+2. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
+3. Extract the contents of the zip file to a new folder of your choice.
+4. Run cetonproxy.exe.
+5. Fill in `Ceton tuner address` with the IP to your ceton tuner device.
+6. Fill in the two `Listen IP` settings according to the following section.
+7. Leave `Listen HTTP Port` set to `5004`.
+8. Click `Edit Channels` for it to request the channel list from the Ceton.
+9. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
+10. It should now be discoverable as an HDHomeRun device in your DVR software.  
 
 ## Configuring Listen IPs
 ### Network Ceton device
