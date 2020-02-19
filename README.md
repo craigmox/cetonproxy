@@ -1,5 +1,5 @@
 # cetonproxy
-An app that allows a Ceton InfiniTV network tuner to appear as a SiliconDust HDHomeRun to DVR apps.
+An app that allows a Ceton InfiniTV PCI/network tuner to appear as a SiliconDust HDHomeRun to DVR apps.
 
 ## Supported DVR software:
 - NextPVR v5
