@@ -47,3 +47,15 @@ Right now the app produces no log file, but does log using the `OutputDebugStrin
 - If there is interest in a Linux/Android/OSX version, let me know, and I can try to put time into it.
 
 I will try to get something working if you're willing to help me work through it.  Submit an issue, and I'll get back to you.  Thanks!
+
+# FAQ
+
+## Where does it store its configuration?
+
+It stores everything in a JSON file at `C:\Users\<username>\AppData\Roaming\cetonproxy\config.js`
+
+If you want it to save somewhere else, you can run it with a command line parameter: `cetonproxy.exe -config "c:\your\config\folder"`
+
+## Can it be used with multiple Ceton devices?
+
+Short answer is no, not yet.  The best suggestion I have right now is to run it on several computers, one for each device. 
