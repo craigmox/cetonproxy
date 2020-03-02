@@ -10,6 +10,8 @@ uses
   System.SysUtils,
   System.SyncObjs,
   System.Math,
+  System.Diagnostics,
+  System.Timespan,
   FMX.Types,
   IdUDPServer,
   IdGlobal,
@@ -79,6 +81,7 @@ type
   IVideoStats = interface
     procedure PacketReceived(const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure PacketRead(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
+    procedure ReaderSlow(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderWait(const aReaderIndex: Integer; const aPacketIndex: Integer);
   end;
 
@@ -132,6 +135,25 @@ type
   public
     constructor Create(const aPacketSize, aPacketCount: Integer; const aStats: IVideoStats);
     destructor Destroy; override;
+  end;
+
+  TDataMeterWindow = type String;
+
+  TDataMeter = record
+  private
+    type
+      PSnapshot = ^TSnapshot;
+      TSnapshot = record
+        Ticks, Bytes: Int64;
+      end;
+  private
+    fSnapshots: array[0..3] of TSnapshot;
+    fSnapshotIndex: Integer;
+    fLastTicks: Int64;
+  public
+    procedure Add(const aBytes: Int64);
+    procedure Reset;
+    function GetBytesPerSecond(const aCurrent: Boolean = False; const aWindowTicks: Int64 = 0): Double;
   end;
 
 function Swap16(const aValue: UInt16): UInt16;
@@ -412,7 +434,12 @@ begin
     for i := 0 to High(fReaderPacketIndexes) do
     begin
       if fReaderPacketIndexes[i] = fWritePacketIndex then
+      begin
+        if Assigned(fStats) then
+          fStats.ReaderSlow(i, fReaderPacketIndexes[i], lPacket^);
+
         fReaderPacketIndexes[i] := (fReaderPacketIndexes[i] + 1) mod Length(fPackets);
+      end;
     end;
 
     fWriteEvent.SetEvent;
@@ -568,6 +595,69 @@ end;
 procedure TRTPVideoSink.Close;
 begin
   fClosed := True;
+end;
+
+{ TDataMeter }
+
+procedure TDataMeter.Add(const aBytes: Int64);
+var
+  lTicks: Int64;
+begin
+  lTicks := TStopWatch.GetTimestamp;
+
+  if fSnapshots[fSnapshotIndex].Ticks > 0 then
+  begin
+    if lTicks > fSnapshots[fSnapshotIndex].Ticks+TTimeSpan.TicksPerSecond then
+    begin
+      fSnapshotIndex := (fSnapshotIndex + 1) mod Length(fSnapshots);
+      fSnapshots[fSnapshotIndex].Bytes := 0;
+      fSnapshots[fSnapshotIndex].Ticks := lTicks;
+    end;
+  end
+  else
+    fSnapshots[fSnapshotIndex].Ticks := lTicks;
+
+  Inc(fSnapshots[fSnapshotIndex].Bytes, aBytes);
+  fLastTicks := lTicks;
+end;
+
+function TDataMeter.GetBytesPerSecond(const aCurrent: Boolean = False; const aWindowTicks: Int64 = 0): Double;
+var
+  lIndex, i: Integer;
+  lBytes, lStartTicks, lCurrentTicks, lWindowTicks: Int64;
+begin
+  if aCurrent then
+    lCurrentTicks := TStopWatch.GetTimeStamp
+  else
+    lCurrentTicks := fLastTicks;
+
+  lWindowTicks := aWindowTicks;
+  if lWindowTicks = 0 then
+    lWindowTicks := (Length(fSnapshots)+1) * TTimeSpan.TicksPerSecond;
+
+  lStartTicks := 0;
+  lBytes := 0;
+  lIndex := fSnapshotIndex+1;
+  for i := lIndex to lIndex+Length(fSnapshots) do
+  begin
+    lIndex := i mod Length(fSnapshots);
+    if fSnapshots[lIndex].Ticks >= lCurrentTicks-lWindowTicks then
+    begin
+      if lStartTicks = 0 then
+        lStartTicks := fSnapshots[lIndex].Ticks;
+      Inc(lBytes, fSnapshots[lIndex].Bytes);
+    end;
+  end;
+  if lStartTicks > 0 then
+    Result := lBytes / ((lCurrentTicks - lStartTicks) / TTimeSpan.TicksPerSecond)
+  else
+    Result := 0;
+end;
+
+procedure TDataMeter.Reset;
+begin
+  FillChar(fSnapshots, SizeOf(fSnapshots), 0);
+  fLastTicks := 0;
 end;
 
 end.

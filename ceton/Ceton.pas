@@ -210,8 +210,9 @@ type
     Channel: Integer;
     Streaming: Boolean;
     PacketsReceived: Integer;
-    PacketsRead: array[0..9] of Integer;
-    ReaderWait: array[0..9] of Integer;
+    Lost: Integer;
+    InMeter: TDataMeter;
+    OutMeter: TDataMeter;
   end;
 
   TTuner = class(TInterfacedPersistent, IVideoStats)
@@ -228,6 +229,7 @@ type
     // IVideoStats
     procedure PacketReceived(const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure PacketRead(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
+    procedure ReaderSlow(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderWait(const aReaderIndex: Integer; const aPacketIndex: Integer);
   public
     constructor Create;
@@ -1288,19 +1290,19 @@ procedure TTuner.PacketReceived(const aPacketIndex: Integer;
   const aPacket: TVideoPacket);
 begin
   Inc(fStats.PacketsReceived);
+  fStats.InMeter.Add(aPacket.Size);
 end;
 
 procedure TTuner.PacketRead(const aReaderIndex, aPacketIndex: Integer;
   const aPacket: TVideoPacket);
 begin
-  if aReaderIndex < Length(fStats.PacketsRead) then
-    Inc(fStats.PacketsRead[aReaderIndex]);
+  if aReaderIndex = 0 then
+    fStats.OutMeter.Add(aPacket.Size);
 end;
 
 procedure TTuner.ReaderWait(const aReaderIndex, aPacketIndex: Integer);
 begin
-  if aReaderIndex < Length(fStats.PacketsRead) then
-    Inc(fStats.ReaderWait[aReaderIndex]);
+
 end;
 
 procedure TTuner.SetChannel(const Value: Integer);
@@ -1318,6 +1320,13 @@ end;
 function TTuner.ContainsSink(const aSink: IRTPVideoSink): Boolean;
 begin
   Result := Assigned(fSink) and Assigned(aSink) and ((fSink as IRTPVideoSink) = (aSink as IRTPVideoSink));
+end;
+
+procedure TTuner.ReaderSlow(const aReaderIndex, aPacketIndex: Integer;
+  const aPacket: TVideoPacket);
+begin
+  if aReaderIndex = 0 then
+    Inc(fStats.Lost);
 end;
 
 { TCetonVideoStream }

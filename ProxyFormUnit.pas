@@ -485,7 +485,7 @@ begin
 
   for i := 0 to High(lStatsArray) do
   begin
-    lbStats.Items[i].Text := Format('%d. Channel: %d, From tuner: %d, To client: %d', [i+1, lStatsArray[i].Channel, lStatsArray[i].PacketsReceived, lStatsArray[i].PacketsRead[0]]);
+    lbStats.Items[i].Text := Format('%d. Channel: %d, From tuner: %0.2fMbps, To client: %0.2fMbps, Lost: %d', [i+1, lStatsArray[i].Channel, lStatsArray[i].InMeter.GetBytesPerSecond(True)/1024/1024, lStatsArray[i].OutMeter.GetBytesPerSecond(True)/1024/1024, lStatsArray[i].Lost]);
   end;
 end;
 
