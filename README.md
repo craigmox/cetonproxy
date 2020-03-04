@@ -1,5 +1,5 @@
 # cetonproxy
-An app that allows a Ceton InfiniTV PCI/network tuner to appear as a SiliconDust HDHomeRun to DVR apps.
+An app that allows a Ceton InfiniTV PCI/USB/network tuner to appear as a SiliconDust HDHomeRun to DVR apps.
 
 ## Supported DVR software:
 - NextPVR v5
@@ -8,7 +8,7 @@ An app that allows a Ceton InfiniTV PCI/network tuner to appear as a SiliconDust
 
 # Install
 
-1. If you have a network Ceton device, you do not need any drivers installed.  But if you have a PCI device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).  In either case, you do not need Windows Media Center.  Also, cetonproxy does not use BDA drivers which were removed from Windows 10 a while back, so it will work on the latest version of Windows 10.
+1. If you have a network Ceton device, you do not need any drivers installed.  But if you have a PCI or USB device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).  In either case, you do not need Windows Media Center.  Also, cetonproxy does not use BDA drivers which were removed from Windows 10 a while back, so it will work on the latest version of Windows 10.
 2. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
 3. Extract the contents of the zip file to a new folder of your choice.
 4. Run cetonproxy.exe.
@@ -22,10 +22,10 @@ An app that allows a Ceton InfiniTV PCI/network tuner to appear as a SiliconDust
 ## Configuring Listen IPs
 ### Network Ceton device
 You should be able to leave both `Listen IP` settings empty.  
-### PCI Ceton device:
+### PCI/USB Ceton devices:
 Your computer with the device should have at least two network adapters.  One provides IP access to the tuner.  The other connects your PC to the rest of your network.  You need the IP addresses for both of these.  
 1.  In Windows 10, click the start menu, type in `Network Connections`, and press enter.
-2.  Double click the `Ceton InfiniTV PCIe` adapter.
+2.  Double click the Ceton InfiniTV PCI/USB adapter.
 3.  Click the `Details...` button.
 4.  Take the IP listed as `IPv4 Address` and fill it into the `Listen IP for Ceton` setting in cetonproxy.
 5.  Go back to the network connections window.
@@ -40,7 +40,7 @@ In a web browser, connect to `http://<Listen IP as HDHomeRun setting>:5004/lineu
 
 The easiest way to check if video is working is to use [VLC](https://www.videolan.org/index.html).  Open a network stream and type in the url `http://<Listen IP as HDHomeRun setting>:5004/auto/v<channel number>`.
 
-Right now the app produces no log file, but does log using the `OutputDebugString` method.  Use a program like [DebugView++](https://github.com/CobaltFusion/DebugViewPP/releases) to be able to monitor log messages from cetonproxy.
+Log files are created in the app's configuration folder and can be useful if you're experiencing problems.  Click the `View Config Folder` button within the `Statistics` section to see them.
 
 # Broken
 - I do not have a way to test ClearQAM channels, DVB tuning, or many other scenarios that the InfiniTV supports, so they likely won't work "out of the box".  I am in USA on Comcast, so I can't say it will work on anything else.
