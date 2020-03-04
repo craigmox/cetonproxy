@@ -11,6 +11,8 @@ uses
   System.JSON,
   System.DateUtils,
   System.Generics.Collections,
+  System.Generics.Defaults,
+  System.SyncObjs,
 
   REST.Types,
   REST.Json,
@@ -18,7 +20,13 @@ uses
   REST.JsonReflect,
 
   HDHR,
-  Ceton;
+  Ceton,
+  LogUtils,
+  FileUtils;
+
+const
+  cLogSizeRollover = 2000000;
+  cMaxLogFiles = 5;
 
 type
   TServiceConfigSection = (Channels, Other);
@@ -54,6 +62,7 @@ type
   IServiceConfigEvents = interface
     ['{E51631F5-FC88-4FEC-BCF6-9A0F5616CE79}']
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+    procedure Log(const aMessage: String);
   end;
 
   IServiceConfigManager = interface
@@ -61,6 +70,7 @@ type
     procedure LockConfig(out aConfig: TServiceConfig);
     procedure UnlockConfig(var aConfig: TServiceConfig);
 
+    procedure Log(const aMessage: String);
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
 
     procedure AddListener(const aListener: IServiceConfigEvents);
@@ -79,6 +89,7 @@ type
     procedure LockConfig(out aConfig: TServiceConfig);
     procedure UnlockConfig(var aConfig: TServiceConfig);
 
+    procedure Log(const aMessage: String);
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
 
     procedure AddListener(const aListener: IServiceConfigEvents);
@@ -88,22 +99,59 @@ type
     destructor Destroy; override;
   end;
 
-  TProxyServiceModule = class(TDataModule, IServiceConfigEvents)
+  TProxyServiceModule = class;
+
+  TServiceThread = class(TThread, IInterface, IServiceConfigEvents)
+  private
+    fServiceModule: TProxyServiceModule;
+    fChangeEvent: TEvent;
+    fConfigChanged: Boolean;
+    fLogCache: TStringBuilder;
+
+    procedure SaveLog;
+  protected
+    // IInterface
+    function QueryInterface(const IID: TGUID; out Obj): HResult; stdcall;
+    function _AddRef: Integer; stdcall;
+    function _Release: Integer; stdcall;
+
+    // IServiceConfigEvents
+    procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+    procedure Log(const aMessage: String);
+  public
+    constructor Create(const aServiceModule: TProxyServiceModule);
+    destructor Destroy; override;
+
+    procedure Execute; override;
+  end;
+
+  TProxyServiceModule = class(TDataModule, IServiceConfigEvents, ILogger)
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
     fClient: TCetonClient;
+    fThread: TServiceThread;
+  protected
+    procedure LoadConfig;
+    procedure SaveConfig;
 
-    function GetConfigPath: String;
+    procedure MoveLog;
   protected
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+    procedure Log(const aMessage: String);
+
+    // ILogger
+    procedure ILogger.Log = HandleLoggerLog;
+    procedure HandleLoggerLog(const aMessage: String);
   public
     { Public declarations }
     property ConfigManager: IServiceConfigManager read fConfigManager;
     property Client: TCetonClient read fClient;
+
+    function GetConfigPath: String;
   end;
 
 var
@@ -296,54 +344,59 @@ begin
   Unlock;
 end;
 
+procedure TServiceConfigManager.Log(const aMessage: String);
+var
+  i: Integer;
+begin
+  Lock;
+  try
+    for i := 0 to fEventListeners.Count-1 do
+    begin
+      fEventListeners[i].Log(aMessage);
+    end;
+  finally
+    Unlock;
+  end;
+end;
+
 { TProxyServiceModule }
 
 procedure TProxyServiceModule.DataModuleCreate(Sender: TObject);
-var
-  lJSON: String;
-  lConfig, lTempConfig: TServiceConfig;
 begin
   fConfigManager := TServiceConfigManager.Create;
 
+  try
+    MoveLog;
+  except
+    //
+  end;
+
+  fThread := TServiceThread.Create(Self);
+
+  TLogger.SetLogger(Self);
+
+  TLogger.Log('Starting cetonproxy');
+
   fClient := TCetonClient.Create;
 
-  try
-    lJSON := TFile.ReadAllText(GetConfigPath + 'config.js');
-  except
-    // Ignore
-  end;
-  lTempConfig := TServiceConfig.FromJSON(lJSON);
-  try
-    fConfigManager.LockConfig(lConfig);
-    try
-      lConfig.Assign(lTempConfig);
-    finally
-      fConfigManager.UnlockConfig(lConfig);
-    end;
-
-    fClient.AssignConfig(lTempConfig.Ceton, []);
-  finally
-    lTempConfig.Free;
-  end;
+  LoadConfig;
 
   fConfigManager.AddListener(Self);
+
+  fThread.Start;
 end;
 
 procedure TProxyServiceModule.DataModuleDestroy(Sender: TObject);
-var
-  lConfig: TServiceConfig;
 begin
+  FreeAndNil(fThread);
+
   fConfigManager.RemoveListener(Self);
 
   fClient.Free;
 
-  fConfigManager.LockConfig(lConfig);
-  try
-    ForceDirectories(GetConfigPath);
-    TFile.WriteAllText(GetConfigPath + 'config.js', lConfig.ToJSON);
-  finally
-    fConfigManager.UnlockConfig(lConfig);
-  end;
+  SaveConfig;
+
+  TLogger.Log('Closing cetonproxy');
 end;
 
 function TProxyServiceModule.GetConfigPath: String;
@@ -386,6 +439,216 @@ begin
           lCetonConfig.Free;
         end;
       end);
+  end;
+end;
+
+procedure TProxyServiceModule.LoadConfig;
+var
+  lJSON: String;
+  lConfig, lTempConfig: TServiceConfig;
+begin
+  try
+    lJSON := TFile.ReadAllText(GetConfigPath + 'config.js');
+  except
+    // Ignore
+  end;
+  lTempConfig := TServiceConfig.FromJSON(lJSON);
+  try
+    fConfigManager.LockConfig(lConfig);
+    try
+      lConfig.Assign(lTempConfig);
+    finally
+      fConfigManager.UnlockConfig(lConfig);
+    end;
+
+    fClient.AssignConfig(lTempConfig.Ceton, []);
+  finally
+    lTempConfig.Free;
+  end;
+end;
+
+procedure TProxyServiceModule.SaveConfig;
+var
+  lConfig: TServiceConfig;
+begin
+  try
+    ConfigManager.LockConfig(lConfig);
+    try
+      ForceDirectories(GetConfigPath);
+      TFile.WriteAllText(GetConfigPath + 'config.js', lConfig.ToJSON);
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+  except
+    on e: Exception do
+      TLogger.LogFmt('Unable to save config: %s', [e.Message]);
+  end;
+end;
+
+procedure TProxyServiceModule.Log(const aMessage: String);
+begin
+  // Nothing
+end;
+
+procedure TProxyServiceModule.HandleLoggerLog(const aMessage: String);
+begin
+  // Pass to config manager to allow broadcasting it to multiple recipients
+  ConfigManager.Log(aMessage);
+end;
+
+procedure TProxyServiceModule.MoveLog;
+var
+  lPath: String;
+  lBaseFilename, lNewFilename: String;
+  i, lIndex: Integer;
+  lFiles: TArray<String>;
+begin
+  lPath := GetConfigPath;
+  if TFile.Exists(lPath+'cetonproxy.log') then
+  begin
+    lBaseFilename := lPath + 'cetonproxy' + FormatDateTime('yyyymmddhhhnnss', Now);
+    lNewFilename := lBaseFilename + '.log';
+    lIndex := 1;
+    while TFile.Exists(lNewFilename) do
+    begin
+      lNewFilename := lBaseFilename + '-' + IntToStr(lIndex) + '.log';
+      Inc(lIndex);
+    end;
+
+    TFile.Move(lPath+'cetonproxy.log', lNewFilename);
+  end;
+
+  // Check for a maximum number of log files
+  lFiles := TDirectory.GetFiles(lPath, 'cetonproxy*.log', TSearchOption.soTopDirectoryOnly);
+  if Length(lFiles) > cMaxLogFiles then
+  begin
+    TArray.Sort<String>(lFiles, TComparer<String>.Default);
+    for i := 0 to High(lFiles)-cMaxLogFiles do
+      TFile.Delete(lFiles[i]);
+  end;
+end;
+
+
+{ TServiceThread }
+
+constructor TServiceThread.Create(const aServiceModule: TProxyServiceModule);
+begin
+  fServiceModule := aServiceModule;
+
+  fChangeEvent := TEvent.Create(nil, False, False, '');
+
+  fLogCache := TStringBuilder.Create;
+
+  fServiceModule.ConfigManager.AddListener(Self);
+
+  inherited Create(True);
+end;
+
+procedure TServiceThread.Changed(const aSender: TObject;
+  const aSections: TServiceConfigSections);
+begin
+  fConfigChanged := True;
+  fChangeEvent.SetEvent;
+end;
+
+destructor TServiceThread.Destroy;
+begin
+  Terminate;
+  fChangeEvent.SetEvent;
+  WaitFor;
+
+  fServiceModule.ConfigManager.RemoveListener(Self);
+
+  fChangeEvent.Free;
+  fLogCache.Free;
+
+  inherited;
+end;
+
+procedure TServiceThread.Execute;
+begin
+  while not Terminated do
+  begin
+    fChangeEvent.WaitFor(1000);
+
+    if fConfigChanged then
+    begin
+      fConfigChanged := False;
+
+      fServiceModule.SaveConfig;
+    end;
+
+    SaveLog;
+
+    try
+      fServiceModule.Client.CheckTuner;
+    except
+      on e: Exception do
+        TLogger.Log(e.Message);
+    end;
+  end;
+end;
+
+function TServiceThread.QueryInterface(const IID: TGUID; out Obj): HResult;
+const
+  E_NOINTERFACE = HResult($80004002);
+begin
+  if GetInterface(IID, Obj) then Result := 0 else Result := E_NOINTERFACE;
+end;
+
+function TServiceThread._AddRef: Integer;
+begin
+  Result := -1;
+end;
+
+function TServiceThread._Release: Integer;
+begin
+  Result := -1;
+end;
+
+procedure TServiceThread.Log(const aMessage: String);
+var
+  lMsg: String;
+begin
+  lMsg := Format('[%s] %s', [FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now), aMessage]);
+
+  TMonitor.Enter(fLogCache);
+  try
+    fLogCache.AppendLine(lMsg);
+  finally
+    TMonitor.Exit(fLogCache);
+  end;
+end;
+
+procedure TServiceThread.SaveLog;
+var
+  lText: String;
+  lPath: String;
+begin
+  TMonitor.Enter(fLogCache);
+  try
+    if fLogCache.Length = 0 then
+      Exit;
+
+    lText := fLogCache.ToString;
+    fLogCache.Length := 0;
+  finally
+    TMonitor.Exit(fLogCache);
+  end;
+
+  lPath := fServiceModule.GetConfigPath+'cetonproxy.log';
+
+  try
+    TFile.AppendAllText(lPath, lText);
+  except
+    // Ignore
+  end;
+
+  try
+    if TFile.GetSize(lPath) >= cLogSizeRollover then
+      fServiceModule.MoveLog;
+  except
+    // Ignore
   end;
 end;
 

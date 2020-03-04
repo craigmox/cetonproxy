@@ -28,8 +28,15 @@ uses
   REST.Json.Types,
   REST.JsonReflect,
 
+  LogUtils,
   SocketUtils,
   VideoUtils;
+
+const
+  cRTPPacketSize = 2048;
+  cRTPPacketCount = Round(20 {20mbit stream} * 1000000/8 {to bytes} / 1500 {avg packet size} * 10 {number of seconds});
+
+  cReadPacketSize = 8192;
 
 type
   ECetonClosedError = class(Exception);
@@ -199,7 +206,7 @@ type
     class procedure StopStream(const aClient: TRestClient; const aTunerID: Integer; const aIP: String; const aPort: Integer); static;
     class procedure TuneChannel(const aClient: TRestClient; const aTunerID, aChannel: Integer); static;
 //    class procedure TuneProgram(const aClient: TRestClient; const aTunerID, aProgram: Integer); static;
-    class function GetVar(const aClient: TRestClient; const aTunerID: Integer; const aServiceName, aVarName: String): String; static;
+    class function GetVar(const aClient: TRestClient; const aTunerID: Integer; const aServiceName, aVarName: String; const aTimeoutMs: Integer = 0): String; static;
     class function WaitForVar(const aClient: TRestClient; const aTunerID: Integer; const aServiceName, aVarName: String; const aTries: Integer; const aWaitMs: Integer; const aValidateValueCallback: TValidateValueCallback): String; static;
     class function VarMatches(const aValue: String): TValidateValueCallback; static;
     class function VarContains(const aValue: String): TValidateValueCallback; static;
@@ -213,6 +220,7 @@ type
     Lost: Integer;
     InMeter: TDataMeter;
     OutMeter: TDataMeter;
+    BufferAvailability: Single;
   end;
 
   TTuner = class(TInterfacedPersistent, IVideoStats)
@@ -220,6 +228,7 @@ type
     fStreaming: Boolean;
     fChannel: Integer;
     fRefCount: Integer;
+    fIndex: Integer;
     fSink: IRTPVideoSink;
     fStats: TTunerStats;
     function GetSink: IRTPVideoSink;
@@ -227,12 +236,15 @@ type
     procedure SetStreaming(const Value: Boolean);
   protected
     // IVideoStats
+    procedure PacketOutOfOrder(const aDelta: Integer);
+    procedure PayloadTypeChange(const aPayloadType: UInt8);
     procedure PacketReceived(const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure PacketRead(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderSlow(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderWait(const aReaderIndex: Integer; const aPacketIndex: Integer);
+    procedure BufferAvailability(const aOpenPacketCount, aTotalPacketCount: Integer);
   public
-    constructor Create;
+    constructor Create(const aIndex: Integer);
     destructor Destroy; override;
 
     procedure RemoveSink;
@@ -240,6 +252,7 @@ type
 
     property Sink: IRTPVideoSink read GetSink;
 
+    property Index: Integer read fIndex;
     property Streaming: Boolean read fStreaming write SetStreaming;
     property Channel: Integer read fChannel write SetChannel;
     property RefCount: Integer read fRefCount write fRefCount;
@@ -296,6 +309,7 @@ type
 
     function TryGetChannel(const aNumber: Integer; const aChannel: TChannelMapItem): Boolean;
 
+    procedure CheckTuner;
     procedure RequestChannelMap;
 
     procedure StartStream(const aTuner: Integer; const aChannel: Integer; out aViewer: TCetonViewer);
@@ -613,7 +627,7 @@ class procedure TREST.StartStream(const aClient: TRestClient;
 var
   lRequest: TStartStopStreamRequest;
 begin
-  Log.d('Starting stream on tuner %d to %s:%d', [aTunerID, aIP, aPort]);
+  TLogger.LogFmt('Starting stream on tuner %d to %s:%d', [aTunerID, aIP, aPort]);
 
   lRequest := TStartStopStreamRequest.Create(nil);
   try
@@ -635,7 +649,7 @@ class procedure TREST.StopStream(const aClient: TRestClient;
 var
   lRequest: TStartStopStreamRequest;
 begin
-  Log.d('Stopping stream on tuner %d', [aTunerID]);
+  TLogger.LogFmt('Stopping stream on tuner %d', [aTunerID]);
 
   lRequest := TStartStopStreamRequest.Create(nil);
   try
@@ -657,7 +671,7 @@ class procedure TREST.TuneChannel(const aClient: TRestClient; const aTunerID,
 var
   lRequest: TTuneChannelRequest;
 begin
-  Log.d('Setting channel on tuner %d to %d', [aTunerID, aChannel]);
+  TLogger.LogFmt('Setting channel on tuner %d to %d', [aTunerID, aChannel]);
 
   lRequest := TTuneChannelRequest.Create(nil);
   try
@@ -677,7 +691,7 @@ end;
 var
   lRequest: TTuneProgramRequest;
 begin
-  Log.d('Setting program on tuner %d to %d', [aTunerID, aProgram]);
+  TLogger.LogFmt('Setting program on tuner %d to %d', [aTunerID, aProgram]);
 
   lRequest := TTuneProgramRequest.Create(nil);
   try
@@ -693,7 +707,7 @@ begin
 end;}
 
 class function TREST.GetVar(const aClient: TRestClient; const aTunerID: Integer;
-  const aServiceName, aVarName: String): String;
+  const aServiceName, aVarName: String; const aTimeoutMs: Integer = 0): String;
 const
   cValueStart = '<body class="get">';
   cValueEnd = '</body></html>';
@@ -702,10 +716,13 @@ var
   lValue: String;
   lStart,lEnd: Integer;
 begin
-  Log.d('Getting %s\%s for tuner %d', [aServiceName, aVarName, aTunerID]);
+  TLogger.LogFmt('Getting %s\%s for tuner %d', [aServiceName, aVarName, aTunerID]);
 
   lRequest := TVarRequest.Create(nil);
   try
+    if aTimeoutMs > 0 then
+      lRequest.Timeout := aTimeoutMs;
+
     lRequest.Client := aClient;
 
     lRequest.InstanceID := aTunerID;
@@ -724,7 +741,7 @@ begin
   if (lStart > -1) and (lEnd > -1) then
     lValue := lValue.Substring(lStart+Length(cValueStart), lEnd-lStart-Length(cValueStart));
 
-  Log.d('Received %s\%s for tuner %d: "%s"', [aServiceName, aVarName, aTunerID, lValue]);
+  TLogger.LogFmt('Received %s\%s for tuner %d: "%s"', [aServiceName, aVarName, aTunerID, lValue]);
 
   Result := lValue;
 end;
@@ -772,12 +789,12 @@ class function TREST.GetTunerCount(const aClient: TRestClient): Integer;
 //var
 //  lRequest: TRESTRequest;
 begin
-  Log.d('Checking tuner count');
+  TLogger.Log('Checking tuner count');
 
   // A 4 tuner PCI card still seems to respond to information requests for tuners 5
   // and 6.  But one difference I saw is that DescramblingStatus is (null) on
   // nonexistant tuners, so using this for now.
-  if SameText(TREST.GetVar(aClient, 5, 'cas', 'DescramblingStatus'), '(null)') then
+  if SameText(TREST.GetVar(aClient, 5, 'cas', 'DescramblingStatus', 3000), '(null)') then
     Result := 4
   else
     Result := 6;
@@ -800,7 +817,7 @@ begin
     lRequest.Free;
   end;}
 
-  Log.d('Determined tuner count: %d', [Result]);
+  TLogger.LogFmt('Determined tuner count: %d', [Result]);
 end;
 
 { TTunerList }
@@ -827,7 +844,7 @@ begin
   while fList.Count > Value do
     fList.Delete(fList.Count-1);
   while fList.Count < Value do
-    fList.Add(TTuner.Create);
+    fList.Add(TTuner.Create(fList.Count));
 end;
 
 function TTunerList.Find(const aChannel: Integer): Integer;
@@ -925,7 +942,6 @@ begin
 
           lTuner.RefCount := 0;
           lTuner.Streaming := False;
-          lTuner.Channel := 0;
         end;
       end;
 
@@ -970,7 +986,7 @@ begin
 
           if lCount >= 3 then
           begin
-            Log.D('No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
+            TLogger.LogFmt('No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
 
             raise ECetonError.Create('No video data');
           end;
@@ -1031,7 +1047,6 @@ begin
           begin
             lTuner.RemoveSink;
 
-            lTuner.Channel := 0;
             lTuner.Streaming := False;
 
             TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, 0);
@@ -1100,19 +1115,10 @@ begin
     if fConfig.TunerAddress <> aConfig.TunerAddress then
     begin
       FreeAndNil(fClient);
-      fConfig.Assign(aConfig, aExcludeSections);
-      fClient := TRESTClient.Create(Format('http://%s', [fConfig.TunerAddress]));
+      fTunerList.Count := 0;
+    end;
 
-      try
-        fTunerList.Count := TREST.GetTunerCount(fClient);
-      except
-        Log.d('Unable to reach tuner at %s', [fConfig.TunerAddress]);
-        fTunerList.Count := 0;
-        FreeAndNil(fClient);
-      end;
-    end
-    else
-      fConfig.Assign(aConfig, aExcludeSections);
+    fConfig.Assign(aConfig, aExcludeSections);
   finally
     Unlock;
   end;
@@ -1174,6 +1180,47 @@ begin
     Result := fTunerList.Count;
   finally
     Unlock;
+  end;
+end;
+
+procedure TCetonClient.CheckTuner;
+var
+  lClient: TRESTClient;
+  lTunerAddress: String;
+  lTunerCount: Integer;
+begin
+  Lock;
+  try
+    if Assigned(fClient) then
+      Exit;
+
+    lTunerAddress := fConfig.TunerAddress;
+  finally
+    Unlock;
+  end;
+
+  try
+    lClient := TRESTClient.Create(Format('http://%s', [lTunerAddress]));
+    try
+      lTunerCount := TREST.GetTunerCount(lClient);
+
+      Lock;
+      try
+        if Assigned(fClient) then
+          Exit;
+
+        fClient := lClient;
+        fTunerList.Count := lTunerCount;
+
+        lClient := nil;
+      finally
+        Unlock;
+      end;
+    finally
+      lClient.Free;
+    end;
+  except
+    raise ECetonError.CreateFmt('Unable to reach tuner at %s', [lTunerAddress]);
   end;
 end;
 
@@ -1258,8 +1305,9 @@ end;
 
 { TTuner }
 
-constructor TTuner.Create;
+constructor TTuner.Create(const aIndex: Integer);
 begin
+  fIndex := aIndex;
   fSink := nil;
 end;
 
@@ -1273,7 +1321,7 @@ end;
 function TTuner.GetSink: IRTPVideoSink;
 begin
   if not Assigned(fSink) then
-    fSink := TRTPVideoSink.Create(2048, 1000, Self);
+    fSink := TRTPVideoSink.Create(cRTPPacketSize, cRTPPacketCount, Self);
   Result := fSink;
 end;
 
@@ -1315,6 +1363,11 @@ procedure TTuner.SetStreaming(const Value: Boolean);
 begin
   fStreaming := Value;
   fStats.Streaming := fStreaming;
+  if Value then
+  begin
+    fStats.Lost := 0;
+    fStats.BufferAvailability := 0;
+  end;
 end;
 
 function TTuner.ContainsSink(const aSink: IRTPVideoSink): Boolean;
@@ -1326,7 +1379,29 @@ procedure TTuner.ReaderSlow(const aReaderIndex, aPacketIndex: Integer;
   const aPacket: TVideoPacket);
 begin
   if aReaderIndex = 0 then
+  begin
+    TLogger.LogFmt('Client %d cannot keep up on tuner %d (From tuner: %0.2fMbps, To client: %0.2fMbps)', [aReaderIndex, Index, fStats.InMeter.GetBytesPerSecond(True)*8/1000000, fStats.OutMeter.GetBytesPerSecond(True)*8/1000000]);
     Inc(fStats.Lost);
+  end;
+end;
+
+procedure TTuner.BufferAvailability(const aOpenPacketCount,
+  aTotalPacketCount: Integer);
+begin
+  if aTotalPacketCount > 0 then
+    fStats.BufferAvailability := aOpenPacketCount / aTotalPacketCount
+  else
+    fStats.BufferAvailability := 0;
+end;
+
+procedure TTuner.PacketOutOfOrder(const aDelta: Integer);
+begin
+  TLogger.LogFmt('Packet out of order on tuner %d: %d', [Index, aDelta]);
+end;
+
+procedure TTuner.PayloadTypeChange(const aPayloadType: UInt8);
+begin
+  TLogger.LogFmt('Packet payload type changed on tuner %d: %d', [Index, aPayloadType]);
 end;
 
 { TCetonVideoStream }
@@ -1339,7 +1414,7 @@ begin
 
   try
     while fReadBuffer.Size < aSize do
-      fClient.ReadStream(fViewer, fReadBuffer, aSize-fReadBuffer.Size, 5000);
+      fClient.ReadStream(fViewer, fReadBuffer, aSize-fReadBuffer.Size, cReadPacketSize);
 
     Result := fReadBuffer.Read(aBuf^, aSize);
   except
@@ -1414,7 +1489,7 @@ begin
   else
   begin
     // Fill ring buffer directly from client
-    fClient.ReadStream(fViewer, fWriteBuffer, Count - fWriteBuffer.Size, 5000);
+    fClient.ReadStream(fViewer, fWriteBuffer, Count - fWriteBuffer.Size, cReadPacketSize);
   end;
 
   Result := fWriteBuffer.Read(Buffer, Count);

@@ -94,6 +94,7 @@ type
     seChannel: TSpinBox;
     DebugMenu: TPopupMenu;
     MenuItem1: TMenuItem;
+    btnShowConfigFolder: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
@@ -107,6 +108,7 @@ type
     procedure ceHDHRListenIPChangeTracking(Sender: TObject);
     procedure btnGetVideoSampleClick(Sender: TObject);
     procedure MenuItem1Click(Sender: TObject);
+    procedure btnShowConfigFolderClick(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -138,6 +140,7 @@ type
   protected
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+    procedure Log(const aMessage: String);
   public
     { Public declarations }
   end;
@@ -476,6 +479,7 @@ procedure TMainForm.FillTunerStatistics;
 var
   lStatsArray: TTunerStatsArray;
   i: Integer;
+  lActiveStr: String;
 begin
   lStatsArray := Client.GetTunerStats;
   while lbStats.Items.Count < Length(lStatsArray) do
@@ -485,7 +489,12 @@ begin
 
   for i := 0 to High(lStatsArray) do
   begin
-    lbStats.Items[i].Text := Format('%d. Channel: %d, From tuner: %0.2fMbps, To client: %0.2fMbps, Lost: %d', [i+1, lStatsArray[i].Channel, lStatsArray[i].InMeter.GetBytesPerSecond(True)/1024/1024, lStatsArray[i].OutMeter.GetBytesPerSecond(True)/1024/1024, lStatsArray[i].Lost]);
+    if lStatsArray[i].Streaming then
+      lActiveStr := 'Active'
+    else
+      lActiveStr := 'Not active';
+
+    lbStats.Items[i].Text := Format('%d. Channel: %d, %s'#13#10+'    From tuner: %0.2fMbps, To client: %0.2fMbps, Lost packets: %d, Buffer free: %0.0f%%', [i+1, lStatsArray[i].Channel, lActiveStr, lStatsArray[i].InMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].OutMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].Lost, lStatsArray[i].BufferAvailability*100]);
   end;
 end;
 
@@ -679,6 +688,16 @@ procedure TMainForm.MenuItem1Click(Sender: TObject);
 begin
   gbDebug.Visible := True;
   DebugSplitter.Visible := True;
+end;
+
+procedure TMainForm.Log(const aMessage: String);
+begin
+  // TODO
+end;
+
+procedure TMainForm.btnShowConfigFolderClick(Sender: TObject);
+begin
+  ShellExecute(0, 'explore', PWideChar(WideString(ProxyServiceModule.GetConfigPath)), nil, nil, SW_SHOWDEFAULT);
 end;
 
 end.

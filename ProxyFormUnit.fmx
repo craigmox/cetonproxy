@@ -38,7 +38,7 @@ object MainForm: TMainForm
         Anchors = [akLeft, akBottom]
         Position.X = 15.000000000000000000
         Position.Y = 250.000000000000000000
-        Size.Width = 106.000000000000000000
+        Size.Width = 122.000000000000000000
         Size.Height = 22.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 1
@@ -64,9 +64,9 @@ object MainForm: TMainForm
       end
       object btnRefreshChannels: TButton
         Anchors = [akRight, akBottom]
-        Position.X = 335.000000000000000000
+        Position.X = 320.000000000000000000
         Position.Y = 250.000000000000000000
-        Size.Width = 106.000000000000000000
+        Size.Width = 121.000000000000000000
         Size.Height = 22.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 0
@@ -75,9 +75,9 @@ object MainForm: TMainForm
       end
       object lblSelectedChannels: TLabel
         Anchors = [akLeft, akBottom]
-        Position.X = 125.000000000000000000
+        Position.X = 144.000000000000000000
         Position.Y = 253.000000000000000000
-        Size.Width = 180.000000000000000000
+        Size.Width = 161.000000000000000000
         Size.Height = 17.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 3
@@ -171,11 +171,11 @@ object MainForm: TMainForm
       Padding.Left = 15.000000000000000000
       Padding.Top = 20.000000000000000000
       Padding.Right = 10.000000000000000000
-      Padding.Bottom = 10.000000000000000000
+      Padding.Bottom = 34.000000000000000000
       PopupMenu = DebugMenu
       Position.Y = 429.000000000000000000
       Size.Width = 450.000000000000000000
-      Size.Height = 311.000000000000000000
+      Size.Height = 323.000000000000000000
       Size.PlatformDefault = False
       StyleLookup = 'gbGroupStyle1'
       Text = 'Statistics'
@@ -185,12 +185,25 @@ object MainForm: TMainForm
         ItemEditAppearanceClassName = 'TCustomizeItemObjects'
         HeaderAppearanceClassName = 'TListHeaderObjects'
         FooterAppearanceClassName = 'TListHeaderObjects'
-        EditMode = True
+        ItemSpaces.Left = 0.000000000000000000
+        ItemSpaces.Right = 0.000000000000000000
         Align = Client
         Size.Width = 425.000000000000000000
-        Size.Height = 281.000000000000000000
+        Size.Height = 269.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 1
+        ShowSelection = False
+      end
+      object btnShowConfigFolder: TButton
+        Anchors = [akBottom]
+        Position.X = 15.000000000000000000
+        Position.Y = 294.000000000000000000
+        Size.Width = 121.000000000000000000
+        Size.Height = 22.000000000000000000
+        Size.PlatformDefault = False
+        TabOrder = 0
+        Text = 'Show Config Folder'
+        OnClick = btnShowConfigFolderClick
       end
     end
     object Splitter1: TSplitter
@@ -206,14 +219,14 @@ object MainForm: TMainForm
       Align = Top
       Cursor = crVSplit
       MinSize = 20.000000000000000000
-      Position.Y = 740.000000000000000000
+      Position.Y = 752.000000000000000000
       Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False
     end
     object gbDebug: TGroupBox
       Align = Top
-      Position.Y = 748.000000000000000000
+      Position.Y = 760.000000000000000000
       Size.Width = 450.000000000000000000
       Size.Height = 141.000000000000000000
       Size.PlatformDefault = False
@@ -256,7 +269,7 @@ object MainForm: TMainForm
       Align = Top
       Cursor = crVSplit
       MinSize = 20.000000000000000000
-      Position.Y = 889.000000000000000000
+      Position.Y = 901.000000000000000000
       Size.Width = 450.000000000000000000
       Size.Height = 8.000000000000000000
       Size.PlatformDefault = False

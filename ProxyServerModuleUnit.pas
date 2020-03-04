@@ -27,7 +27,8 @@ uses
   ProxyServiceModuleUnit,
 
   Ceton,
-  HDHR;
+  HDHR,
+  LogUtils;
 
 const
   SSDP_PORT = 1900;
@@ -77,6 +78,7 @@ type
   protected
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+    procedure Log(const aMessage: String);
   public
     { Public declarations }
 
@@ -187,7 +189,7 @@ begin
       end;
       fServer.Active := True;
     except
-      Log.d('Unable to bind HTTP server listening port');
+      TLogger.Log('Unable to bind HTTP server listening port');
     end;
 
     try
@@ -199,7 +201,7 @@ begin
       end;
       fDiscoveryServer.Active := True;
     except
-      Log.d('Unable to bind discovery listening port');
+      TLogger.Log('Unable to bind discovery listening port');
     end;
 
 {    try
@@ -211,7 +213,7 @@ begin
       end;
       fControlServer.Active := True;
     except
-      Log.d('Unable to bind control listening port');
+      TLogger.Log('Unable to bind control listening port');
     end;}
 
     try
@@ -224,7 +226,7 @@ begin
       fSSDPClient.ReuseSocket := rsTrue;
       fSSDPClient.Active := True;
     except
-      Log.d('Unable to bind SSDP listening port');
+      TLogger.Log('Unable to bind SSDP listening port');
     end;
 
 {    try
@@ -232,7 +234,7 @@ begin
       fSSDPServer.BoundPort := SSDP_PORT;
       fSSDPServer.Active := True;
     except
-      Log.d('Unable to bind SSDP listening port');
+      TLogger.Log('Unable to bind SSDP listening port');
     end;}
   end;
 end;
@@ -296,7 +298,7 @@ begin
   begin
     SetLength(lHex, Length(AData)*2);
     BinToHex(AData, PAnsiChar(lHex), Length(AData));
-    Log.D('Received control data: %s', [lHex]);
+    TLogger.LogFmt('Received control data: %s', [lHex]);
 
     if TPacket.TryFromBytes(TBytes(AData), lPacket) then
     begin
@@ -305,7 +307,7 @@ begin
         case lPacket._Type of
           HDHOMERUN_TYPE_DISCOVER_REQ: begin
             lDiscovery := lPacket.ToDiscovery;
-            Log.D('Received discovery request: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
+            TLogger.LogFmt('Received discovery request: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
 
             ConfigManager.LockConfig(lConfig);
             try
@@ -333,14 +335,14 @@ begin
               lBytes := TPacket.FromDiscovery(False, lDiscovery).ToBytes;
               SetLength(lHex, Length(lBytes)*2);
               BinToHex(lBytes, PAnsiChar(lHex), Length(lBytes));
-              Log.D('Sending discovery response: Device ID: %s, Base URL: %s, %s', [IntToHex(lDiscovery.DeviceID, 8), lDiscovery.BaseURL, lHex]);
+              TLogger.LogFmt('Sending discovery response: Device ID: %s, Base URL: %s, %s', [IntToHex(lDiscovery.DeviceID, 8), lDiscovery.BaseURL, lHex]);
 
               AThread.Server.SendBuffer(ABinding.PeerIP, ABinding.PeerPort, TIdBytes(lBytes));
             end;
           end;
           HDHOMERUN_TYPE_DISCOVER_RPY: begin
             lDiscovery := lPacket.ToDiscovery;
-            Log.D('Received discovery reply: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
+            TLogger.LogFmt('Received discovery reply: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
           end;
         end;
       end;
@@ -398,12 +400,12 @@ end;
 
 procedure TProxyServerModule.ControlTCPConnect(aContext: TIdContext);
 begin
-  Log.D('Control connect');
+  TLogger.Log('Control connect');
 end;
 
 procedure TProxyServerModule.ControlTCPExecute(aContext: TIdContext);
 begin
-  Log.D('Control execute');
+  TLogger.Log('Control execute');
 end;
 
 procedure TProxyServerModule.SSDPClientRead(Sender: TObject;
@@ -421,7 +423,7 @@ begin
     begin
       if String(lData).Contains('ST: upnp:rootdevice') then
       begin
-        Log.D('Received M-SEARCH for rootdevice from %s', [ABinding.PeerIP]);
+        TLogger.LogFmt('Received M-SEARCH for rootdevice from %s', [ABinding.PeerIP]);
         fDiscoveryServer.Send(ABinding.PeerIP, ABinding.PeerPort, CreateSSDPAlivePacket);
       end;
     end;
@@ -465,6 +467,11 @@ begin
   end;
 
   Result := Format(cSSDPAlive, [ListenIP, lPort, lDeviceUUID]);
+end;
+
+procedure TProxyServerModule.Log(const aMessage: String);
+begin
+  // Nothing
 end;
 
 end.

@@ -42,6 +42,11 @@ object ProxyWebModule: TProxyWebModule
       Name = 'DeviceXMLAction'
       PathInfo = '/device.xml'
       OnAction = ProxyWebModuleDeviceXMLActionAction
+    end
+    item
+      Name = 'SpeedTestAction'
+      PathInfo = '/speedtest'
+      OnAction = ProxyWebModuleSpeedTestActionAction
     end>
   Height = 333
   Width = 414

@@ -34,7 +34,9 @@ uses
   libavutil_opt in 'ffmpeg\src\headers\libavutil_opt.pas',
   libavutil_bprint in 'ffmpeg\src\headers\libavutil_bprint.pas',
   libavutil_log in 'ffmpeg\src\headers\libavutil_log.pas',
-  libavutil_avstring in 'ffmpeg\src\headers\libavutil_avstring.pas';
+  libavutil_avstring in 'ffmpeg\src\headers\libavutil_avstring.pas',
+  LogUtils in 'LogUtils.pas',
+  FileUtils in 'FileUtils.pas';
 
 {$R *.res}
 

@@ -15,6 +15,9 @@ uses
 
   FFUtils;
 
+const
+  cConverterPacketSize = 8192;
+
 type
   EVideoConverterError = class(Exception);
 
@@ -69,7 +72,7 @@ var
   lRet: Integer;
 begin
   fInputFormatContext := avformat_alloc_context;
-  fInputFormatContext.pb := avio_alloc_context(av_malloc(8192), 8192, 0, Self, _ReadPacket, nil, nil);
+  fInputFormatContext.pb := avio_alloc_context(av_malloc(cConverterPacketSize), cConverterPacketSize, 0, Self, _ReadPacket, nil, nil);
 
   lRet := avformat_open_input(@fInputFormatContext, nil, nil, nil);
   if lRet < 0 then
@@ -85,7 +88,7 @@ begin
   if not Assigned(fOutputFormatContext) then
     ErrorFmt('Could not create output context',[]);
 
-  fOutputFormatContext.pb := avio_alloc_context(av_malloc(8192), 8192, 1, Self, nil, _WritePacket, nil);
+  fOutputFormatContext.pb := avio_alloc_context(av_malloc(cConverterPacketSize), cConverterPacketSize, 1, Self, nil, _WritePacket, nil);
 
   SetupStreams;
 

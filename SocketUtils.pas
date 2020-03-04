@@ -12,12 +12,12 @@ uses
   System.Math,
   System.Diagnostics,
   System.Timespan,
-  FMX.Types,
   IdUDPServer,
   IdGlobal,
   IdSocketHandle,
   IdStack,
-  IdStackConsts;
+  IdStackConsts,
+  LogUtils;
 
 type
   EVideoError = class(Exception);
@@ -79,10 +79,13 @@ type
   end;
 
   IVideoStats = interface
+    procedure PacketOutOfOrder(const aDelta: Integer);
+    procedure PayloadTypeChange(const aPayloadType: UInt8);
     procedure PacketReceived(const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure PacketRead(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderSlow(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderWait(const aReaderIndex: Integer; const aPacketIndex: Integer);
+    procedure BufferAvailability(const aOpenPacketCount, aTotalPacketCount: Integer);
   end;
 
   IRTPVideoSink = interface
@@ -394,6 +397,7 @@ var
   lWritten, lToWrite: Integer;
   lHeader: PRTPHeader;
   i: Integer;
+  lOpenPacketCount: Integer;
 begin
   if Length(AData) < 12 then
     Exit;
@@ -403,9 +407,11 @@ begin
   if fLastHeader.Version > 0 then
   begin
     if lHeader.SequenceNumber <> fLastHeader.SequenceNumber+1 then
-      Log.D('Out of order %d', [lHeader.SequenceNumber - fLastHeader.SequenceNumber]);
+      if Assigned(fStats) then
+        fStats.PacketOutOfOrder(lHeader.SequenceNumber - fLastHeader.SequenceNumber);
     if lHeader.PayloadType <> fLastHeader.PayloadType then
-      Log.D('Payload type %d', [lHeader.PayloadType]);
+      if Assigned(fStats) then
+        fStats.PayloadTypeChange(lHeader.PayloadType);
   end;
   fLastHeader := lHeader^;
 
@@ -425,12 +431,14 @@ begin
     if Assigned(fStats) then
       fStats.PacketReceived(fWritePacketIndex, lPacket^);
 
+    lOpenPacketCount := Length(fPackets);
+
     // Decide where we'll write the next packet to come in
     fWritePacketIndex := (fWritePacketIndex + 1) mod Length(fPackets);
 
     // If any readers will be looking at that packet index next, push them along to
-    // the next packet.  Do not allow a slow reader to drag us behind because that
-    // can lead to packet loss.
+    // the current packet.  Do not allow a slow reader to drag us behind because that
+    // can lead to us losing packets from the tuner and ruining it for everyone.
     for i := 0 to High(fReaderPacketIndexes) do
     begin
       if fReaderPacketIndexes[i] = fWritePacketIndex then
@@ -438,9 +446,17 @@ begin
         if Assigned(fStats) then
           fStats.ReaderSlow(i, fReaderPacketIndexes[i], lPacket^);
 
-        fReaderPacketIndexes[i] := (fReaderPacketIndexes[i] + 1) mod Length(fPackets);
+        fReaderPacketIndexes[i] := (fWritePacketIndex + Length(fPackets) - 1) mod Length(fPackets);
       end;
+
+      lOpenPacketCount := Min(lOpenPacketCount, ((fReaderPacketIndexes[i] - fWritePacketIndex) + Length(fPackets)) mod Length(fPackets));
     end;
+
+    if Assigned(fStats) then
+      fStats.BufferAvailability(lOpenPacketCount, Length(fPackets));
+
+    // Reset the size of the next packet to zero
+    fPackets[fWritePacketIndex].Size := 0;
 
     fWriteEvent.SetEvent;
   finally
