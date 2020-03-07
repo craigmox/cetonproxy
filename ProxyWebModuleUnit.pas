@@ -62,6 +62,8 @@ type
 
     procedure HandleException;
 
+    function GetAddress(const aRequest: TWebRequest): String;
+
     procedure GetLineup(const aLineup: TLineup);
     procedure SendTuneResponse(const aTuner, aChannel: Integer; const Response: TWebResponse);
 
@@ -155,19 +157,19 @@ procedure TProxyWebModule.ProxyWebModuleDiscoverActionAction(Sender: TObject;
 var
   lResponse: TDiscoverResponse;
   lConfig: TServiceConfig;
-  lListenIP: String;
+  lAddress: String;
   lTunerCount: Integer;
 begin
   Handled := True;
   try
     lResponse := TDiscoverResponse.Create;
     try
-      lListenIP := ProxyServerModule.ListenIP;
+      lAddress := GetAddress(Request);
       lTunerCount := Client.TunerCount;
 
       ConfigManager.LockConfig(lConfig);
       try
-        lResponse.BaseURL := Format('http://%s:%d', [lListenIP, lConfig.HTTPPort]);
+        lResponse.BaseURL := Format('http://%s:%d', [lAddress, lConfig.ExternalHTTPPort]);
         lResponse.DeviceID := IntToHex(lConfig.DeviceID);
         lResponse.TunerCount := lTunerCount;
       finally
@@ -318,7 +320,7 @@ var
   lConfig: TServiceConfig;
   lCetonConfig: TCetonConfig;
   lRequestChannels: Boolean;
-  lListenIP: String;
+  lAddress: String;
   lPort: Integer;
   lChannelMap: TChannelMap;
 begin
@@ -352,11 +354,11 @@ begin
 
   lChannelMap := TChannelMap.create;
   try
-    lListenIP := ProxyServerModule.ListenIP;
+    lAddress := GetAddress(Request);
 
     ConfigManager.LockConfig(lConfig);
     try
-      lPort := lConfig.HTTPPort;
+      lPort := lConfig.ExternalHTTPPort;
       lChannelMap.Assign(lConfig.Ceton.ChannelMap, False);
     finally
       ConfigManager.UnlockConfig(lConfig);
@@ -366,7 +368,7 @@ begin
     begin
       lChannelMapItem := lChannelMap[i];
       if lChannelMapItem.Visible then
-        aLineup.Add(IntToStr(lChannelMapItem.Channel), lChannelMapItem.Name, Format('http://%s:%d/auto/v%d', [lListenIP, lPort, lChannelMapItem.Channel]));
+        aLineup.Add(IntToStr(lChannelMapItem.Channel), lChannelMapItem.Name, Format('http://%s:%d/auto/v%d', [lAddress, lPort, lChannelMapItem.Channel]));
     end;
   finally
     lChannelMap.Free;
@@ -847,6 +849,11 @@ begin
   except
     HandleException;
   end;
+end;
+
+function TProxyWebModule.GetAddress(const aRequest: TWebRequest): String;
+begin
+  Result := ProxyServerModule.GetAddress(aRequest.Host);
 end;
 
 initialization

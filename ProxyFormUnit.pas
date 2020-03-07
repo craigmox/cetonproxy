@@ -50,7 +50,7 @@ uses
   SocketUtils,
 
   ProxyServiceModuleUnit,
-  ProxyServerModuleUnit;
+  ProxyServerModuleUnit, FMX.Objects;
 
 type
   TChannelListBoxItem = class(TListBoxItem)
@@ -68,11 +68,7 @@ type
   TMainForm = class(TForm, IServiceConfigEvents)
     lbChannels: TListBox;
     btnEditChannels: TButton;
-    Splitter1: TSplitter;
-    gbGroup: TGroupBox;
     StyleBook1: TStyleBook;
-    gbSettings: TGroupBox;
-    gbStats: TGroupBox;
     VertScrollBox1: TVertScrollBox;
     eCetonTunerAddress: TEdit;
     Label1: TLabel;
@@ -80,21 +76,33 @@ type
     Label2: TLabel;
     btnRefreshChannels: TButton;
     lbStats: TListView;
-    Splitter2: TSplitter;
     Label3: TLabel;
     eHDHRListenHTTPPort: TEdit;
     Label4: TLabel;
-    gbDebug: TGroupBox;
-    DebugSplitter: TSplitter;
-    Label5: TLabel;
-    btnGetVideoSample: TButton;
     lblSelectedChannels: TLabel;
     ceCetonListenIP: TComboEdit;
     ceHDHRListenIP: TComboEdit;
-    seChannel: TSpinBox;
-    DebugMenu: TPopupMenu;
-    MenuItem1: TMenuItem;
     btnShowConfigFolder: TButton;
+    pnlSettings: TExpander;
+    pnlAdvancedSettings: TExpander;
+    Label6: TLabel;
+    eHDHRExternalAddress: TEdit;
+    eHDHRExternalHTTPPort: TEdit;
+    Label7: TLabel;
+    pnlChannels: TExpander;
+    pnlStatistics: TExpander;
+    Layout1: TLayout;
+    Layout2: TLayout;
+    PanelContainer: TLayout;
+    Splitter1: TSplitter;
+    Splitter2: TSplitter;
+    OuterPanelContainer: TLayout;
+    pnlDebug: TExpander;
+    btnGetVideoSample: TButton;
+    seChannel: TSpinBox;
+    Label8: TLabel;
+    HelpCallout: TCalloutRectangle;
+    lblHelp: TLabel;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
@@ -107,8 +115,12 @@ type
     procedure eHDHRListenHTTPPortChangeTracking(Sender: TObject);
     procedure ceHDHRListenIPChangeTracking(Sender: TObject);
     procedure btnGetVideoSampleClick(Sender: TObject);
-    procedure MenuItem1Click(Sender: TObject);
     procedure btnShowConfigFolderClick(Sender: TObject);
+    procedure PanelResizing(Sender: TObject);
+    procedure eHDHRExternalAddressChangeTracking(Sender: TObject);
+    procedure eHDHRExternalHTTPPortChangeTracking(Sender: TObject);
+    procedure EditMouseEnter(Sender: TObject);
+    procedure EditMouseLeave(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -216,9 +228,6 @@ end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 begin
-  gbDebug.Visible := FindCmdLineSwitch('debug');
-  DebugSplitter.Visible := gbDebug.Visible;
-
   fConfigManager := ProxyServiceModule.ConfigManager;
   fConfigManager.AddListener(Self);
 
@@ -342,6 +351,8 @@ begin
       ceCetonListenIP.Text := lConfig.Ceton.ListenIP;
       ceHDHRListenIP.Text := lConfig.ListenIP;
       eHDHRListenHTTPPort.Text := IntToStr(lConfig.HTTPPort);
+      eHDHRExternalAddress.Text := lConfig.ExternalAddress;
+      eHDHRExternalHTTPPort.Text := IntToStr(lConfig.ExternalHTTPPort);
     finally
       ConfigManager.UnlockConfig(lConfig);
     end;
@@ -684,12 +695,6 @@ begin
   end;
 end;
 
-procedure TMainForm.MenuItem1Click(Sender: TObject);
-begin
-  gbDebug.Visible := True;
-  DebugSplitter.Visible := True;
-end;
-
 procedure TMainForm.Log(const aMessage: String);
 begin
   // TODO
@@ -698,6 +703,60 @@ end;
 procedure TMainForm.btnShowConfigFolderClick(Sender: TObject);
 begin
   ShellExecute(0, 'explore', PWideChar(WideString(ProxyServiceModule.GetConfigPath)), nil, nil, SW_SHOWDEFAULT);
+end;
+
+procedure TMainForm.PanelResizing(Sender: TObject);
+begin
+  // Always keep the outer panel container at content size so the scrolling matches the content
+  OuterPanelContainer.Height := pnlDebug.Position.Y + pnlDebug.Height + pnlDebug.Margins.Bottom;
+  // But make the panel container much larger so that splitters have lots of room to work with
+  PanelContainer.Height := OuterPanelContainer.Height + 1000;
+end;
+
+procedure TMainForm.eHDHRExternalAddressChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.ExternalAddress := eHDHRExternalAddress.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.eHDHRExternalHTTPPortChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.ExternalHTTPPort := StrToIntDef(eHDHRExternalHTTPPort.Text, HDHR_HTTP_PORT);
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.EditMouseEnter(Sender: TObject);
+begin
+  HelpCallout.Visible := True;
+  HelpCallout.Position.Y := TControl(Sender).LocalToAbsolute(TPointF.Zero).Y + TControl(Sender).Height;
+  lblHelp.Text := TControl(Sender).Hint;
+end;
+
+procedure TMainForm.EditMouseLeave(Sender: TObject);
+begin
+  HelpCallout.Visible := False;
 end;
 
 end.

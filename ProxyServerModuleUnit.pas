@@ -68,10 +68,9 @@ type
 
     procedure ServerException(AContext: TIdContext; AException: Exception);
 
-    function CreateSSDPAlivePacket: String;
+    function CreateSSDPAlivePacket(const aRequestHost: String): String;
 
     function GetActive: Boolean;
-    function GetListenIP: String;
 
     property ConfigManager: IServiceConfigManager read fConfigManager;
     property Client: TCetonClient read fClient;
@@ -85,7 +84,8 @@ type
     procedure StartServer;
     procedure StopServer;
 
-    property ListenIP: String read GetListenIP;
+    function GetAddress(const aRequestHost: String): String;
+
     property Active: Boolean read GetActive;
 
     property DiscoveryServer: TIdUDPServer read fDiscoveryServer;
@@ -163,6 +163,8 @@ var
   lConfig: TServiceConfig;
   lListenIP: String;
   lHTTPPort: Integer;
+  lAddresses: TIdStackLocalAddressList;
+  i: Integer;
 begin
   if not fServer.Active then
   begin
@@ -194,10 +196,38 @@ begin
 
     try
       fDiscoveryServer.Bindings.Clear;
-      with fDiscoveryServer.Bindings.Add do
+
+      if lListenIP = '' then
       begin
-        IP := lListenIP;
-        Port := HDHR_DISCOVERY_PORT;
+        // If listening on all IPs, have to explicitly create a binding for each local IP
+        // so that we can properly read which IP that UDP packets come in on
+        lAddresses := TIdStackLocalAddressList.Create;
+        try
+          TIdStack.IncUsage;
+          try
+            gStack.GetLocalAddressList(lAddresses);
+          finally
+            TIdStack.DecUsage;
+          end;
+
+          for i := 0 to lAddresses.Count-1 do
+            with fDiscoveryServer.Bindings.Add do
+            begin
+              IPVersion := lAddresses[i].IPVersion;
+              IP := lAddresses[i].IPAddress;
+              Port := HDHR_DISCOVERY_PORT;
+            end;
+        finally
+          lAddresses.Free;
+        end;
+      end
+      else
+      begin
+        with fDiscoveryServer.Bindings.Add do
+        begin
+          IP := lListenIP;
+          Port := HDHR_DISCOVERY_PORT;
+        end;
       end;
       fDiscoveryServer.Active := True;
     except
@@ -290,7 +320,7 @@ var
   lDiscovery: TDiscoveryData;
   lConfig: TServiceConfig;
   lBytes: TBytes;
-  lListenIP: String;
+  lAddress: String;
   lDeviceID: UInt32;
   lTunerCount: Integer;
 begin
@@ -298,7 +328,7 @@ begin
   begin
     SetLength(lHex, Length(AData)*2);
     BinToHex(AData, PAnsiChar(lHex), Length(AData));
-    TLogger.LogFmt('Received control data: %s', [lHex]);
+    TLogger.LogFmt('Received control data from %s: %s', [ABinding.PeerIP, lHex]);
 
     if TPacket.TryFromBytes(TBytes(AData), lPacket) then
     begin
@@ -318,7 +348,7 @@ begin
 
             if ((lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_TUNER) or (lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_WILDCARD)) and ((lDiscovery.DeviceID = HDHOMERUN_DEVICE_ID_WILDCARD) or (lDiscovery.DeviceID = lDeviceID)) then
             begin
-              lListenIP := ListenIP;
+              lAddress := GetAddress(ABinding.IP);
               lTunerCount := Client.TunerCount;
 
               ConfigManager.LockConfig(lConfig);
@@ -326,7 +356,7 @@ begin
                 lDiscovery.DeviceID := lConfig.DeviceID;
                 lDiscovery.TunerCount := lTunerCount;
                 lDiscovery.DeviceAuthStr := 'abcdefg';
-                lDiscovery.BaseURL := AnsiString(Format('http://%s:%d', [lListenIP, lConfig.HTTPPort]));
+                lDiscovery.BaseURL := AnsiString(Format('http://%s:%d', [lAddress, lConfig.ExternalHTTPPort]));
                 lDiscovery.LineupURL := AnsiString(Format('%s/lineup.json', [lDiscovery.BaseURL]));
               finally
                 ConfigManager.UnlockConfig(lConfig);
@@ -376,16 +406,21 @@ begin
 //  fSSDPServer.Send(CreateSSDPAlivePacket);
 end;
 
-function TProxyServerModule.GetListenIP: String;
+function TProxyServerModule.GetAddress(const aRequestHost: String): String;
 var
   lConfig: TServiceConfig;
 begin
   ConfigManager.LockConfig(lConfig);
   try
-    Result := lConfig.ListenIP;
+    Result := lConfig.ExternalAddress;
+    if Result = '' then
+      Result := lConfig.ListenIP;
   finally
     ConfigManager.UnlockConfig(lConfig);
   end;
+
+  if Result = '' then
+    Result := aRequestHost;
 
   if Result = '' then
   begin
@@ -424,7 +459,7 @@ begin
       if String(lData).Contains('ST: upnp:rootdevice') then
       begin
         TLogger.LogFmt('Received M-SEARCH for rootdevice from %s', [ABinding.PeerIP]);
-        fDiscoveryServer.Send(ABinding.PeerIP, ABinding.PeerPort, CreateSSDPAlivePacket);
+        fDiscoveryServer.Send(ABinding.PeerIP, ABinding.PeerPort, CreateSSDPAlivePacket(ABinding.IP));
       end;
     end;
   end;
@@ -439,7 +474,7 @@ end;
 //  Cache-Control: max-age=1800
 //  USN: uuid:473366D2-A765-3D61-B466-XXXXX::upnp:rootdevice
 
-function TProxyServerModule.CreateSSDPAlivePacket: String;
+function TProxyServerModule.CreateSSDPAlivePacket(const aRequestHost: String): String;
 const
   cSSDPAlive =
     'NOTIFY * HTTP/1.1'#13#10+
@@ -451,22 +486,22 @@ const
     'Cache-Control: max-age=1800'#13#10+
     'USN: uuid:%s::upnp:rootdevice'#13#10#13#10;
 var
-  lListenIP: String;
+  lAddress: String;
   lPort: Integer;
   lDeviceUUID: String;
   lConfig: TServiceConfig;
 begin
-  lListenIP := ListenIP;
+  lAddress := GetAddress(ARequestHost);
 
   ConfigManager.LockConfig(lConfig);
   try
-    lPort := lConfig.HTTPPort;
+    lPort := lConfig.ExternalHTTPPort;
     lDeviceUUID := lConfig.DeviceUUID;
   finally
     ConfigManager.UnlockConfig(lConfig);
   end;
 
-  Result := Format(cSSDPAlive, [ListenIP, lPort, lDeviceUUID]);
+  Result := Format(cSSDPAlive, [lAddress, lPort, lDeviceUUID]);
 end;
 
 procedure TProxyServerModule.Log(const aMessage: String);

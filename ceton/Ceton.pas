@@ -21,6 +21,8 @@ uses
   Xml.XmlIntf,
 
   IdStack,
+  IdSocketHandle,
+  IdTCPClient,
 
   REST.Client,
   REST.Types,
@@ -292,6 +294,7 @@ type
     fConfig: TCetonConfig;
     fClient: TRESTClient;
     fTunerList: TTunerList;
+    fDetectedListenIP: String;
 
     procedure Lock;
     procedure Unlock;
@@ -1062,13 +1065,19 @@ begin
 end;
 
 function TCetonClient.GetListenIP: String;
+var
+  lDetectedListenIP: String;
 begin
   Lock;
   try
     Result := fConfig.ListenIP;
+    lDetectedListenIP := fDetectedListenIP;
   finally
     Unlock;
   end;
+
+  if Result = '' then
+    Result := lDetectedListenIP;
 
   if Result = '' then
   begin
@@ -1116,6 +1125,7 @@ begin
     begin
       FreeAndNil(fClient);
       fTunerList.Count := 0;
+      fDetectedListenIP := '';
     end;
 
     fConfig.Assign(aConfig, aExcludeSections);
@@ -1186,6 +1196,7 @@ end;
 procedure TCetonClient.CheckTuner;
 var
   lClient: TRESTClient;
+  lTCPClient: TIdTCPClient;
   lTunerAddress: String;
   lTunerCount: Integer;
 begin
@@ -1218,6 +1229,29 @@ begin
       end;
     finally
       lClient.Free;
+    end;
+
+    try
+      lTCPClient := TIdTCPClient.Create(nil);
+      try
+        lTCPClient.Host := lTunerAddress;
+        lTCPClient.Port := 80;
+        lTCPClient.Connect;
+
+        Lock;
+        try
+          fDetectedListenIP := lTCPClient.Socket.Binding.IP;
+
+          TLogger.LogFmt('Detected tuner listen IP: %s', [fDetectedListenIP]);
+        finally
+          Unlock;
+        end;
+      finally
+        lTCPClient.Free;
+      end;
+    except
+      on e: Exception do
+        TLogger.LogFmt('Unable to detect tuner listen IP: %s', [e.Message]);
     end;
   except
     raise ECetonError.CreateFmt('Unable to reach tuner at %s', [lTunerAddress]);

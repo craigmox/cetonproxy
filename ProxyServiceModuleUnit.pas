@@ -13,6 +13,7 @@ uses
   System.Generics.Collections,
   System.Generics.Defaults,
   System.SyncObjs,
+  FMX.Types,
 
   REST.Types,
   REST.Json,
@@ -39,6 +40,8 @@ type
     fListenIP: String;
     fHTTPPort: Integer;
     fDeviceUUID: String;
+    fExternalAddress: String;
+    fExternalHTTPPort: Integer;
 
     procedure CreateDeviceID;
     procedure CreateDeviceUUID;
@@ -57,6 +60,8 @@ type
     property DeviceUUID: String read fDeviceUUID write fDeviceUUID;
     property ListenIP: String read fListenIP write fListenIP;
     property HTTPPort: Integer read fHTTPPort write fHTTPPort;
+    property ExternalAddress: String read fExternalAddress write fExternalAddress;
+    property ExternalHTTPPort: Integer read fExternalHTTPPort write fExternalHTTPPort;
   end;
 
   IServiceConfigEvents = interface
@@ -242,6 +247,7 @@ begin
   fCeton := TCetonConfig.Create;
 
   fHTTPPort := HDHR_HTTP_PORT;
+  fExternalHTTPPort := fHTTPPort;
 
   CreateDeviceID;
   CreateDeviceUUID;
@@ -267,6 +273,8 @@ begin
     lDest.fDeviceUUID := fDeviceUUID;
     lDest.fHTTPPort := fHTTPPort;
     lDest.fListenIP := fListenIP;
+    lDest.fExternalAddress := fExternalAddress;
+    lDest.fExternalHTTPPort := fExternalHTTPPort;
   end
   else
     inherited;
@@ -611,6 +619,8 @@ var
   lMsg: String;
 begin
   lMsg := Format('[%s] %s', [FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now), aMessage]);
+
+  FMX.Types.Log.d('%s', [lMsg]);
 
   TMonitor.Enter(fLogCache);
   try
