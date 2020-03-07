@@ -152,6 +152,8 @@ end;
 function readpacket(opaque: Pointer; buf: PByte; buf_size: Integer): Integer; cdecl;
 begin
   Result := tfilestream(opaque).Read(buf^, buf_size);
+  if Result = 0 then
+    Result := AVERROR_EOF;
 end;
 
 function writepacket(opaque: Pointer; buf: PByte; buf_size: Integer): Integer; cdecl;
@@ -222,7 +224,7 @@ begin
     goto the_end;
   end;
 
-//  av_dump_format(ifmt_ctx, 0, in_filename, 0);
+  av_dump_format(ifmt_ctx, 0, in_filename, 0);
 
   avformat_alloc_output_context2(@ofmt_ctx, nil, ifmt_ctx.iformat.name, nil);
   if not Assigned(ofmt_ctx) then
@@ -267,6 +269,13 @@ begin
       ret := AVERROR_UNKNOWN;
       goto the_end;
     end;
+
+    if Assigned(in_stream.metadata) then
+      av_dict_copy(@out_stream.metadata, in_stream.metadata, 0);
+
+//    out_stream.id := in_stream.id;
+    out_stream.time_base := in_stream.time_base;
+    out_stream.avg_frame_rate := in_stream.avg_frame_rate;
 
     ret := avcodec_parameters_copy(out_stream.codecpar, in_codecpar);
     if ret < 0 then
@@ -320,7 +329,8 @@ begin
     pkt.pos := -1;
 //    log_packet(ofmt_ctx, @pkt, 'out');
 
-    ret := av_interleaved_write_frame(ofmt_ctx, @pkt);
+//    ret := av_interleaved_write_frame(ofmt_ctx, @pkt);
+      Ret := av_write_frame(ofmt_ctx, @pkt);
     if ret < 0 then
     begin
       Writeln(ErrOutput, 'Error muxing packet');

@@ -8,6 +8,7 @@ uses
   libavformat,
   libavformat_avio,
   libavutil,
+  libavutil_dict,
   libavutil_mem,
   libavutil_error,
   libavutil_mathematics,
@@ -147,9 +148,13 @@ begin
     if not Assigned(lOutStream) then
       ErrorFmt('Failed allocating output stream', []);
 
-    lOutStream.id := lInStream.id;
+//    lOutStream.id := lInStream.id; // Causes black screen
     lOutStream.time_base := lInStream.time_base;
     lOutStream.avg_frame_rate := lInStream.avg_frame_rate;
+
+    // Copy metadata (which includes audio language info)
+    if Assigned(lInStream.metadata) then
+      av_dict_copy(@lOutStream.metadata, lInStream.metadata, 0);
 
     lRet := avcodec_parameters_copy(lOutStream.codecpar, lInCodecParams);
     if lRet < 0 then
