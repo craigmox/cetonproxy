@@ -93,6 +93,7 @@ type
     procedure PacketRead(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderSlow(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderWait(const aReaderIndex: Integer; const aPacketIndex: Integer);
+    procedure ReaderStopped(const aReaderIndex: Integer);
     procedure BufferAvailability(const aOpenPacketCount, aTotalPacketCount: Integer);
   end;
 
@@ -440,22 +441,23 @@ begin
 
   lHeader := @AData[0];
 
-  if fLastHeader.Version > 0 then
-  begin
-    if lHeader.SequenceNumber <> fLastHeader.SequenceNumber+1 then
-      if Assigned(fStats) then
-        fStats.PacketOutOfOrder(lHeader.SequenceNumber - fLastHeader.SequenceNumber);
-    if lHeader.PayloadType <> fLastHeader.PayloadType then
-      if Assigned(fStats) then
-        fStats.PayloadTypeChange(lHeader.PayloadType);
-  end;
-  fLastHeader := lHeader^;
-
-  lWritten := 12; // Skip RTP header
-  lToWrite := Length(AData)-lWritten;
-
   Lock;
   try
+    if fLastHeader.Version > 0 then
+    begin
+      if lHeader.SequenceNumber <> fLastHeader.SequenceNumber+1 then
+        if Assigned(fStats) then
+          fStats.PacketOutOfOrder(lHeader.SequenceNumber - fLastHeader.SequenceNumber);
+      if lHeader.PayloadType <> fLastHeader.PayloadType then
+        if Assigned(fStats) then
+          fStats.PayloadTypeChange(lHeader.PayloadType);
+    end;
+    fLastHeader := lHeader^;
+
+    lWritten := 12; // Skip RTP header
+    lToWrite := Length(AData)-lWritten;
+
+
     lPacket := @fPackets[fWritePacketIndex];
 
     if Length(lPacket.Data) < lToWrite then
@@ -477,15 +479,18 @@ begin
     // can lead to us losing packets from the tuner and ruining it for everyone.
     for i := 0 to High(fReaderPacketIndexes) do
     begin
-      if fReaderPacketIndexes[i] = fWritePacketIndex then
+      if fReaderPacketIndexes[i] <> -1 then
       begin
-        if Assigned(fStats) then
-          fStats.ReaderSlow(i, fReaderPacketIndexes[i], lPacket^);
+        if fReaderPacketIndexes[i] = fWritePacketIndex then
+        begin
+          if Assigned(fStats) then
+            fStats.ReaderSlow(i, fReaderPacketIndexes[i], lPacket^);
 
-        fReaderPacketIndexes[i] := (fWritePacketIndex + Length(fPackets) - 1) mod Length(fPackets);
+          fReaderPacketIndexes[i] := (fWritePacketIndex + Length(fPackets) - 1) mod Length(fPackets);
+        end;
+
+        lOpenPacketCount := Min(lOpenPacketCount, ((fReaderPacketIndexes[i] - fWritePacketIndex) + Length(fPackets)) mod Length(fPackets));
       end;
-
-      lOpenPacketCount := Min(lOpenPacketCount, ((fReaderPacketIndexes[i] - fWritePacketIndex) + Length(fPackets)) mod Length(fPackets));
     end;
 
     if Assigned(fStats) then
@@ -611,6 +616,9 @@ begin
   try
     if aReader.ReaderIndex > -1 then
     begin
+      if Assigned(fStats) then
+        fStats.ReaderStopped(aReader.ReaderIndex);
+
       fReaderPacketIndexes[aReader.ReaderIndex] := -1;
       aReader.ReaderIndex := -1;
     end;
@@ -647,6 +655,12 @@ end;
 procedure TRTPVideoSink.Close;
 begin
   fClosed := True;
+  Lock;
+  try
+    fStats := nil;
+  finally
+    Unlock;
+  end;
 end;
 
 { TDataMeter }

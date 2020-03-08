@@ -487,8 +487,10 @@ end;
 procedure TMainForm.FillTunerStatistics;
 var
   lStatsArray: TTunerStatsArray;
-  i: Integer;
+  i, i2: Integer;
   lActiveStr: String;
+  lText: String;
+  lCount: Integer;
 begin
   lStatsArray := Client.GetTunerStats;
   while lbStats.Items.Count < Length(lStatsArray) do
@@ -498,12 +500,25 @@ begin
 
   for i := 0 to High(lStatsArray) do
   begin
-    if lStatsArray[i].Streaming then
+    if lStatsArray[i].Active then
       lActiveStr := 'Active'
     else
       lActiveStr := 'Not active';
 
-    lbStats.Items[i].Text := Format('%d. Channel: %d, %s'#13#10+'    From tuner: %0.2fMbps, To client: %0.2fMbps, Lost packets: %d, Buffer free: %0.0f%%', [i+1, lStatsArray[i].Channel, lActiveStr, lStatsArray[i].InMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].OutMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].Lost, lStatsArray[i].BufferAvailability*100]);
+    lText := Format('%d. Channel: %d, %s  (%0.2fMbps, Buffer free: %0.0f%%)', [i+1, lStatsArray[i].Channel, lActiveStr, lStatsArray[i].InMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].BufferFree*100]);
+    lCount := 1;
+
+    for i2 := 0 to lStatsArray[i].ClientCount-1 do
+    begin
+      if lStatsArray[i].Clients[i2].Active then
+      begin
+        lText := lText + #13#10 + Format('    To client: %0.2fMbps, Lost packets: %d', [lStatsArray[i].Clients[i2].OutMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].Clients[i2].Lost]);
+        Inc(lCount);
+      end;
+    end;
+
+    lbStats.Items[i].Text := lText;
+    lbStats.Items[i].Height := 22*lCount;
   end;
 end;
 

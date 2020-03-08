@@ -2,7 +2,7 @@ object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Ceton HDHomeRun Proxy'
-  ClientHeight = 562
+  ClientHeight = 507
   ClientWidth = 472
   Fill.Kind = Solid
   Position = ScreenCenter
@@ -17,15 +17,15 @@ object MainForm: TMainForm
   object VertScrollBox1: TVertScrollBox
     Align = Client
     Size.Width = 472.000000000000000000
-    Size.Height = 562.000000000000000000
+    Size.Height = 507.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
     Viewport.Width = 472.000000000000000000
-    Viewport.Height = 562.000000000000000000
+    Viewport.Height = 507.000000000000000000
     object OuterPanelContainer: TLayout
       Align = Top
       Size.Width = 472.000000000000000000
-      Size.Height = 561.000000000000000000
+      Size.Height = 505.000000000000000000
       Size.PlatformDefault = False
       TabOrder = 0
       object PanelContainer: TLayout
@@ -227,13 +227,13 @@ object MainForm: TMainForm
           Position.Y = 120.000000000000000000
           ShowCheck = False
           Size.Width = 466.000000000000000000
-          Size.Height = 404.000000000000000000
+          Size.Height = 354.000000000000000000
           Size.PlatformDefault = False
           Text = 'Statistics'
           TabOrder = 3
           OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
-          ContentSize = '384'
+          ContentSize = '334'
           object lbStats: TListView
             ItemAppearanceClassName = 'TCustomizeItemObjects'
             ItemEditAppearanceClassName = 'TCustomizeItemObjects'
@@ -247,14 +247,14 @@ object MainForm: TMainForm
             Margins.Top = 9.000000000000000000
             Margins.Right = 10.000000000000000000
             Size.Width = 446.000000000000000000
-            Size.Height = 341.000000000000000000
+            Size.Height = 291.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 0
             ShowSelection = False
           end
           object Layout2: TLayout
             Align = Bottom
-            Position.Y = 350.000000000000000000
+            Position.Y = 300.000000000000000000
             Size.Width = 466.000000000000000000
             Size.Height = 34.000000000000000000
             Size.PlatformDefault = False
@@ -359,7 +359,7 @@ object MainForm: TMainForm
           Align = Top
           Cursor = crVSplit
           MinSize = 20.000000000000000000
-          Position.Y = 524.000000000000000000
+          Position.Y = 474.000000000000000000
           ShowGrip = False
           Size.Width = 472.000000000000000000
           Size.Height = 6.000000000000000000
@@ -372,7 +372,7 @@ object MainForm: TMainForm
           Margins.Right = 3.000000000000000000
           Margins.Bottom = 3.000000000000000000
           Position.X = 3.000000000000000000
-          Position.Y = 530.000000000000000000
+          Position.Y = 480.000000000000000000
           ShowCheck = False
           Size.Width = 466.000000000000000000
           Size.Height = 20.000000000000000000

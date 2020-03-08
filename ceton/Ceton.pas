@@ -17,6 +17,7 @@ uses
   System.DateUtils,
   System.StrUtils,
   System.TypInfo,
+  System.Diagnostics,
 
   Xml.XmlDoc,
   Xml.XmlIntf,
@@ -38,6 +39,8 @@ const
   cRTPPacketCount = Round(20 {20mbit stream} * 1000000/8 {to bytes} / 1500 {avg packet size} * 10 {number of seconds});
 
   cReadPacketSize = 8192;
+
+  cStatsUpdateIntervalMs = 500;
 
 type
   ECetonClosedError = class(Exception);
@@ -217,27 +220,56 @@ type
     class function GetModel(const aClient: TRestClient): TCetonModel; static;
   end;
 
-  TTunerStats = record
-    Channel: Integer;
-    Streaming: Boolean;
-    PacketsReceived: Integer;
+  PTunerClientStats = ^TTunerClientStats;
+  TTunerClientStats = record
+    Active: Boolean;
     Lost: Integer;
-    InMeter: TDataMeter;
     OutMeter: TDataMeter;
-    BufferAvailability: Single;
   end;
+
+  TTunerStats = record
+  private
+    fClients: TArray<TTunerClientStats>;
+    function GetClient(const aIndex: Integer): PTunerClientStats;
+    function GetClientCount: Integer;
+  public
+    Channel: Integer;
+    Active: Boolean;
+    PacketsReceived: Integer;
+    InMeter: TDataMeter;
+    BufferFree: Single;
+
+    function Clone: TTunerStats;
+
+    function CreateClient(const aIndex: Integer): PTunerClientStats;
+    procedure ResetClient(const aIndex: Integer);
+    procedure ResetClients;
+
+    property Clients[const aIndex: Integer]: PTunerClientStats read GetClient;
+    property ClientCount: Integer read GetClientCount;
+  end;
+
+  TTunerStatsArray = TArray<TTunerStats>;
 
   TTuner = class(TInterfacedPersistent, IVideoStats)
   private
-    fStreaming: Boolean;
+    fActive: Boolean;
     fChannel: Integer;
     fRefCount: Integer;
     fIndex: Integer;
     fSink: IRTPVideoSink;
+
+    fInternalStats: TTunerStats;
     fStats: TTunerStats;
+    fStatsLock: TObject;
+    fStatsWatch: TStopWatch;
+
+    procedure StatsUpdated(const aForce: Boolean = False);
+
     function GetSink: IRTPVideoSink;
     procedure SetChannel(const Value: Integer);
-    procedure SetStreaming(const Value: Boolean);
+    procedure SetActive(const Value: Boolean);
+    function GetStats: TTunerStats;
   protected
     // IVideoStats
     procedure PacketOutOfOrder(const aDelta: Integer);
@@ -246,6 +278,7 @@ type
     procedure PacketRead(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderSlow(const aReaderIndex: Integer; const aPacketIndex: Integer; const aPacket: TVideoPacket);
     procedure ReaderWait(const aReaderIndex: Integer; const aPacketIndex: Integer);
+    procedure ReaderStopped(const aReaderIndex: Integer);
     procedure BufferAvailability(const aOpenPacketCount, aTotalPacketCount: Integer);
   public
     constructor Create(const aIndex: Integer);
@@ -257,10 +290,10 @@ type
     property Sink: IRTPVideoSink read GetSink;
 
     property Index: Integer read fIndex;
-    property Streaming: Boolean read fStreaming write SetStreaming;
+    property Active: Boolean read fActive write SetActive;
     property Channel: Integer read fChannel write SetChannel;
     property RefCount: Integer read fRefCount write fRefCount;
-    property Stats: TTunerStats read fStats;
+    property Stats: TTunerStats read GetStats;
   end;
 
   TTunerList = class
@@ -288,8 +321,6 @@ type
 
     class function Invalid: TCetonViewer; static;
   end;
-
-  TTunerStatsArray = TArray<TTunerStats>;
 
   TCetonClient = class
   private
@@ -885,7 +916,7 @@ begin
 
   for i := 0 to fList.Count-1 do
   begin
-    if not fList[i].Streaming then
+    if not fList[i].Active then
       Exit(i);
   end;
 
@@ -958,7 +989,7 @@ begin
 
       lTuner := fTunerList[aViewer.TunerIndex];
 
-      if lTuner.Streaming then
+      if lTuner.Active then
       begin
         if lTuner.Channel <> aChannel then
         begin
@@ -967,7 +998,7 @@ begin
           lTuner.RemoveSink;
 
           lTuner.RefCount := 0;
-          lTuner.Streaming := False;
+          lTuner.Active := False;
         end;
       end;
 
@@ -1019,7 +1050,7 @@ begin
         until lReceivedPacket or (lCount >= 3);
 
         lTuner.Channel := aChannel;
-        lTuner.Streaming := True;
+        lTuner.Active := True;
         lTuner.RefCount := lTuner.RefCount + 1;
       except
         // To be safe, don't allow the sink to be reused the next time because there may be
@@ -1073,7 +1104,7 @@ begin
           begin
             lTuner.RemoveSink;
 
-            lTuner.Streaming := False;
+            lTuner.Active := False;
 
             TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, 0);
           end;
@@ -1374,6 +1405,8 @@ constructor TTuner.Create(const aIndex: Integer);
 begin
   fIndex := aIndex;
   fSink := nil;
+  fStatsLock := TObject.Create;
+  fStatsWatch := TStopwatch.StartNew;
 end;
 
 destructor TTuner.Destroy;
@@ -1396,21 +1429,25 @@ begin
   begin
     fSink.Close;
     fSink := nil;
+
+    fInternalStats.ResetClients;
+    StatsUpdated(True);
   end;
 end;
 
 procedure TTuner.PacketReceived(const aPacketIndex: Integer;
   const aPacket: TVideoPacket);
 begin
-  Inc(fStats.PacketsReceived);
-  fStats.InMeter.Add(aPacket.Size);
+  Inc(fInternalStats.PacketsReceived);
+  fInternalStats.InMeter.Add(aPacket.Size);
+  StatsUpdated;
 end;
 
 procedure TTuner.PacketRead(const aReaderIndex, aPacketIndex: Integer;
   const aPacket: TVideoPacket);
 begin
-  if aReaderIndex = 0 then
-    fStats.OutMeter.Add(aPacket.Size);
+  fInternalStats.CreateClient(aReaderIndex).OutMeter.Add(aPacket.Size);
+  StatsUpdated;
 end;
 
 procedure TTuner.ReaderWait(const aReaderIndex, aPacketIndex: Integer);
@@ -1421,18 +1458,17 @@ end;
 procedure TTuner.SetChannel(const Value: Integer);
 begin
   fChannel := Value;
-  fStats.Channel := fChannel;
+
+  fInternalStats.Channel := fChannel;
+  StatsUpdated(True);
 end;
 
-procedure TTuner.SetStreaming(const Value: Boolean);
+procedure TTuner.SetActive(const Value: Boolean);
 begin
-  fStreaming := Value;
-  fStats.Streaming := fStreaming;
-  if Value then
-  begin
-    fStats.Lost := 0;
-    fStats.BufferAvailability := 0;
-  end;
+  fActive := Value;
+
+  fInternalStats.Active := fActive;
+  StatsUpdated(True);
 end;
 
 function TTuner.ContainsSink(const aSink: IRTPVideoSink): Boolean;
@@ -1443,20 +1479,19 @@ end;
 procedure TTuner.ReaderSlow(const aReaderIndex, aPacketIndex: Integer;
   const aPacket: TVideoPacket);
 begin
-  if aReaderIndex = 0 then
-  begin
-    TLogger.LogFmt('Client %d cannot keep up on tuner %d (From tuner: %0.2fMbps, To client: %0.2fMbps)', [aReaderIndex, Index, fStats.InMeter.GetBytesPerSecond(True)*8/1000000, fStats.OutMeter.GetBytesPerSecond(True)*8/1000000]);
-    Inc(fStats.Lost);
-  end;
+  TLogger.LogFmt('Client %d cannot keep up on tuner %d (From tuner: %0.2fMbps, To client: %0.2fMbps)', [aReaderIndex, Index, fInternalStats.InMeter.GetBytesPerSecond(True)*8/1000000, fInternalStats.Clients[aReaderIndex].OutMeter.GetBytesPerSecond(True)*8/1000000]);
+  Inc(fInternalStats.CreateClient(aReaderIndex).Lost);
+  StatsUpdated(True);
 end;
 
 procedure TTuner.BufferAvailability(const aOpenPacketCount,
   aTotalPacketCount: Integer);
 begin
   if aTotalPacketCount > 0 then
-    fStats.BufferAvailability := aOpenPacketCount / aTotalPacketCount
+    fInternalStats.BufferFree := aOpenPacketCount / aTotalPacketCount
   else
-    fStats.BufferAvailability := 0;
+    fInternalStats.BufferFree := 0;
+  StatsUpdated;
 end;
 
 procedure TTuner.PacketOutOfOrder(const aDelta: Integer);
@@ -1467,6 +1502,37 @@ end;
 procedure TTuner.PayloadTypeChange(const aPayloadType: UInt8);
 begin
   TLogger.LogFmt('Packet payload type changed on tuner %d: %d', [Index, aPayloadType]);
+end;
+
+function TTuner.GetStats: TTunerStats;
+begin
+  TMonitor.Enter(fStatsLock);
+  try
+    Result := fStats.Clone;
+  finally
+    TMonitor.Exit(fStatsLock);
+  end;
+end;
+
+procedure TTuner.StatsUpdated(const aForce: Boolean);
+begin
+  if (fStatsWatch.ElapsedMilliseconds >= cStatsUpdateIntervalMs) or (aForce) then
+  begin
+    TMonitor.Enter(fStatsLock);
+    try
+      fStats := fInternalStats.Clone;
+    finally
+      TMonitor.Exit(fStatsLock);
+    end;
+    fStatsWatch.Reset;
+    fStatsWatch.Start;
+  end;
+end;
+
+procedure TTuner.ReaderStopped(const aReaderIndex: Integer);
+begin
+  fInternalStats.ResetClient(aReaderIndex);
+  StatsUpdated(True);
 end;
 
 { TCetonVideoStream }
@@ -1666,6 +1732,47 @@ end;
 function TCetonViewer.IsValid: Boolean;
 begin
   Result := TunerIndex > -1;
+end;
+
+{ TTunerStats }
+
+function TTunerStats.GetClient(const aIndex: Integer): PTunerClientStats;
+begin
+  Result := @fClients[aIndex];
+end;
+
+function TTunerStats.Clone: TTunerStats;
+begin
+  Result := Self;
+  Result.fClients := Copy(fClients);
+end;
+
+procedure TTunerStats.ResetClient(const aIndex: Integer);
+begin
+  if aIndex < Length(fClients) then
+  begin
+    fClients[aIndex].Active := False;
+    fClients[aIndex].Lost := 0;
+    fClients[aIndex].OutMeter.Reset;
+  end;
+end;
+
+procedure TTunerStats.ResetClients;
+begin
+  fClients := nil;
+end;
+
+function TTunerStats.GetClientCount: Integer;
+begin
+  Result := Length(fClients);
+end;
+
+function TTunerStats.CreateClient(const aIndex: Integer): PTunerClientStats;
+begin
+  if aIndex > High(fClients) then
+    SetLength(fClients, aIndex+1);
+  Result := @fClients[aIndex];
+  Result.Active := True;
 end;
 
 end.
