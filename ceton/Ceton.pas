@@ -16,12 +16,11 @@ uses
   System.JSON,
   System.DateUtils,
   System.StrUtils,
+  System.TypInfo,
 
   Xml.XmlDoc,
   Xml.XmlIntf,
 
-  IdStack,
-  IdSocketHandle,
   IdTCPClient,
 
   REST.Client,
@@ -198,6 +197,8 @@ type
     property VarName: String read fVarName write fVarName;
   end;
 
+  TCetonModel = (Ethernet, USB, PCI);
+
   TREST = class abstract
   public
     type
@@ -213,6 +214,7 @@ type
     class function VarMatches(const aValue: String): TValidateValueCallback; static;
     class function VarContains(const aValue: String): TValidateValueCallback; static;
     class function GetTunerCount(const aClient: TRestClient): Integer; static;
+    class function GetModel(const aClient: TRestClient): TCetonModel; static;
   end;
 
   TTunerStats = record
@@ -295,6 +297,7 @@ type
     fClient: TRESTClient;
     fTunerList: TTunerList;
     fDetectedListenIP: String;
+    fModel: TCetonModel;
 
     procedure Lock;
     procedure Unlock;
@@ -303,6 +306,7 @@ type
 
     function GetListenIP: String;
     function GetTunerCount: Integer;
+    function GetModel: TCetonModel;
   public
     constructor Create;
     destructor Destroy; override;
@@ -323,6 +327,7 @@ type
 
     property ListenIP: String read GetListenIP;
     property TunerCount: Integer read GetTunerCount;
+    property Model: TCetonModel read GetModel;
   end;
 
   TCetonVideoStream = class(TStream)
@@ -823,6 +828,24 @@ begin
   TLogger.LogFmt('Determined tuner count: %d', [Result]);
 end;
 
+class function TREST.GetModel(const aClient: TRestClient): TCetonModel;
+var
+  lConnectionType: String;
+begin
+  TLogger.Log('Identifying tuner model');
+
+  lConnectionType := TREST.GetVar(aClient, 0, 'diag', 'Host_Connection').ToLower;
+
+  if lConnectionType.Contains('usb') then
+    Result := TCetonModel.USB
+  else if lConnectionType.Contains('pci') then
+    Result := TCetonModel.PCI
+  else
+    Result := TCetonModel.Ethernet;
+
+  TLogger.LogFmt('Determined tuner model: %s', [GetEnumName(TypeInfo(TCetonModel), Integer(Result))]);
+end;
+
 { TTunerList }
 
 constructor TTunerList.Create;
@@ -1081,12 +1104,7 @@ begin
 
   if Result = '' then
   begin
-    TIdStack.IncUsage;
-    try
-      Result := GStack.LocalAddress;
-    finally
-      TIdStack.DecUsage;
-    end;
+    Result := TSocketUtils.GetLocalIPs.LowestMetric(4).IP;
   end;
 end;
 
@@ -1199,6 +1217,7 @@ var
   lTCPClient: TIdTCPClient;
   lTunerAddress: String;
   lTunerCount: Integer;
+  lModel: TCetonModel;
 begin
   Lock;
   try
@@ -1214,6 +1233,7 @@ begin
     lClient := TRESTClient.Create(Format('http://%s', [lTunerAddress]));
     try
       lTunerCount := TREST.GetTunerCount(lClient);
+      lModel := TREST.GetModel(lClient);
 
       Lock;
       try
@@ -1222,6 +1242,7 @@ begin
 
         fClient := lClient;
         fTunerList.Count := lTunerCount;
+        fModel := lModel;
 
         lClient := nil;
       finally
@@ -1255,6 +1276,16 @@ begin
     end;
   except
     raise ECetonError.CreateFmt('Unable to reach tuner at %s', [lTunerAddress]);
+  end;
+end;
+
+function TCetonClient.GetModel: TCetonModel;
+begin
+  Lock;
+  try
+    Result := fModel;
+  finally
+    Unlock;
   end;
 end;
 

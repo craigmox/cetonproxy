@@ -49,6 +49,7 @@ object MainForm: TMainForm
           Size.PlatformDefault = False
           Text = 'Advanced Settings'
           TabOrder = 0
+          OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
           ContentSize = '156'
           object Label7: TLabel
@@ -198,6 +199,7 @@ object MainForm: TMainForm
           Size.PlatformDefault = False
           Text = 'Settings'
           TabOrder = 2
+          OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
           ContentSize = '39'
           object eCetonTunerAddress: TEdit
@@ -229,6 +231,7 @@ object MainForm: TMainForm
           Size.PlatformDefault = False
           Text = 'Statistics'
           TabOrder = 3
+          OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
           ContentSize = '384'
           object lbStats: TListView
@@ -282,12 +285,13 @@ object MainForm: TMainForm
           Size.PlatformDefault = False
           Text = 'Channels'
           TabOrder = 1
+          OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
-          ContentSize = '212'
+          ContentSize = '200'
           object Layout1: TLayout
             Align = Bottom
-            Position.Y = 178.000000000000000000
-            Size.Width = 466.000000000000000000
+            Position.Y = 166.000000000000000000
+            Size.Width = 200.000000000000000000
             Size.Height = 34.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 0
@@ -303,7 +307,7 @@ object MainForm: TMainForm
             end
             object btnRefreshChannels: TButton
               Anchors = [akTop, akRight]
-              Position.X = 335.000000000000000000
+              Position.X = 69.000000000000000000
               Position.Y = 4.000000000000000000
               Size.Width = 121.000000000000000000
               Size.Height = 22.000000000000000000
@@ -327,8 +331,8 @@ object MainForm: TMainForm
             Margins.Left = 10.000000000000000000
             Margins.Top = 9.000000000000000000
             Margins.Right = 10.000000000000000000
-            Size.Width = 446.000000000000000000
-            Size.Height = 169.000000000000000000
+            Size.Width = 180.000000000000000000
+            Size.Height = 157.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 1
             DisableFocusEffect = True
@@ -337,8 +341,8 @@ object MainForm: TMainForm
             DefaultItemStyles.GroupFooterStyle = ''
             ShowCheckboxes = True
             OnChangeCheck = lbChannelsChangeCheck
-            Viewport.Width = 442.000000000000000000
-            Viewport.Height = 165.000000000000000000
+            Viewport.Width = 176.000000000000000000
+            Viewport.Height = 153.000000000000000000
           end
         end
         object Splitter1: TSplitter
@@ -375,6 +379,7 @@ object MainForm: TMainForm
           Size.PlatformDefault = False
           Text = 'Debug'
           TabOrder = 6
+          OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
           ContentSize = '41'
           object btnGetVideoSample: TButton

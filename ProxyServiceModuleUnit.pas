@@ -20,12 +20,16 @@ uses
   REST.Json.Types,
   REST.JsonReflect,
 
+  IdStack,
+
   HDHR,
   Ceton,
   LogUtils,
   FileUtils;
 
 const
+  cServiceConfigVersion = 2;
+
   cLogSizeRollover = 2000000;
   cMaxLogFiles = 5;
 
@@ -42,6 +46,7 @@ type
     fDeviceUUID: String;
     fExternalAddress: String;
     fExternalHTTPPort: Integer;
+    fVersion: Integer;
 
     procedure CreateDeviceID;
     procedure CreateDeviceUUID;
@@ -56,6 +61,7 @@ type
 
     property Ceton: TCetonConfig read fCeton;
 
+    property Version: Integer read fVersion write fVersion;
     property DeviceID: UInt32 read fDeviceID write fDeviceID;
     property DeviceUUID: String read fDeviceUUID write fDeviceUUID;
     property ListenIP: String read fListenIP write fListenIP;
@@ -209,8 +215,10 @@ var
   lR: TReverterEvent;
   lJSONObject: TJSONObject;
 begin
-  Result := nil;
+  Result := TServiceConfig.Create;
   try
+    Result.Version := 0;
+
     m := TJSONUnMarshal.Create;
     try
       lR := TReverterEvent.Create(TChannelMapItem, 'list');
@@ -226,7 +234,7 @@ begin
 
       lJSONObject := TJSONObject(TJSONObject.ParseJSONValue(aJSON));
       try
-        Result := m.CreateObject(TServiceConfig, lJSONObject) as TServiceConfig;
+        Result := m.CreateObject(TServiceConfig, lJSONObject, Result) as TServiceConfig;
       finally
         lJSONObject.Free;
       end;
@@ -249,6 +257,8 @@ begin
   fHTTPPort := HDHR_HTTP_PORT;
   fExternalHTTPPort := fHTTPPort;
 
+  fVersion := cServiceConfigVersion;
+
   CreateDeviceID;
   CreateDeviceUUID;
 end;
@@ -268,6 +278,7 @@ begin
   begin
     lDest := TServiceConfig(Dest);
 
+    lDest.fVersion := fVersion;
     lDest.fCeton.Assign(fCeton);
     lDest.fDeviceID := fDeviceID;
     lDest.fDeviceUUID := fDeviceUUID;
@@ -462,6 +473,26 @@ begin
   end;
   lTempConfig := TServiceConfig.FromJSON(lJSON);
   try
+    if lTempConfig.Version < 2 then
+    begin
+      // In older versions of the app, if ListenIP is blank, then it meant
+      // use the first enumerated local IP.  Newer versions use different strategies
+      // for listening on ports and for reporting the HDHomeRun URL for clients to connect
+      // to, which could cause DVR software to see us as a different HDHomeRun device.
+      // So for backward compatibility, assign a listen IP on older configs.
+      // NOTE: Purposefully using Indy to match old behavior.
+      TIdStack.IncUsage;
+      try
+        lTempConfig.ListenIP := GStack.LocalAddress;
+      finally
+        TIdStack.DecUsage;
+      end;
+
+      lTempConfig.Version := 2;
+    end;
+
+    lTempConfig.Version := cServiceConfigVersion;
+
     fConfigManager.LockConfig(lConfig);
     try
       lConfig.Assign(lTempConfig);

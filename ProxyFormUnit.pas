@@ -15,10 +15,6 @@ uses
 
   WinApi.Windows,
   Winapi.ShellApi,
-  Winapi.IpHlpApi,
-  Winapi.IpTypes,
-  Winapi.IpExport,
-  Winapi.WinSock,
 
   FMX.Types,
   FMX.Graphics,
@@ -121,6 +117,8 @@ type
     procedure eHDHRExternalHTTPPortChangeTracking(Sender: TObject);
     procedure EditMouseEnter(Sender: TObject);
     procedure EditMouseLeave(Sender: TObject);
+    procedure PanelMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Single);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -581,52 +579,22 @@ end;
 
 function TMainForm.GetLocalIPs: TArray<String>;
 var
-  lAdapterAddresses, lCurAdapterAddress: PIP_ADAPTER_ADDRESSES;
-  lSize: ULONG;
-  lList: TList<String>;
-  lIP: String;
-  lCurAddress: PIP_ADAPTER_UNICAST_ADDRESS;
+  lInfoArray: TLocalIPInfoArray;
+  i: Integer;
+  lCount: Integer;
 begin
-  lAdapterAddresses := nil;
-  lSize := 0;
-  GetAdaptersAddresses(AF_INET, 0, nil, lAdapterAddresses, @lSize);
-  if lSize > 0 then
+  lInfoArray := TSocketUtils.GetLocalIPs;
+  SetLength(Result, Length(lInfoArray));
+  lCount := 0;
+  for i := 0 to High(lInfoArray) do
   begin
-    GetMem(lAdapterAddresses, lSize);
-    try
-      if GetAdaptersAddresses(AF_INET, 0, nil, lAdapterAddresses, @lSize) = ERROR_SUCCESS then
-      begin
-        lList := TList<String>.Create;
-        try
-          lCurAdapterAddress := lAdapterAddresses;
-          while Assigned(lCurAdapterAddress) do
-          begin
-            if lCurAdapterAddress.IfType = 6 {ETHERNET} then
-            begin
-              lCurAddress := lCurAdapterAddress.FirstUnicastAddress;
-              while Assigned(lCurAddress) do
-              begin
-                if Assigned(lCurAddress.Address.lpSockaddr) then
-                begin
-                  lIP := String(inet_ntoa(lCurAddress.Address.lpSockaddr.sin_addr));
-                  lList.Add(Format('%s (%s)', [lIP, WideString(lCurAdapterAddress.FriendlyName)]));
-                end;
-
-                lCurAddress := lCurAddress.Next;
-              end;
-            end;
-            lCurAdapterAddress := lCurAdapterAddress.Next;
-          end;
-
-          Result := lList.ToArray;
-        finally
-          lList.Free;
-        end;
-      end;
-    finally
-      FreeMem(lAdapterAddresses, lSize);
+    if lInfoArray[i].IPVersion = 4 then
+    begin
+      Result[lCount] := Format('%s (%s)', [lInfoArray[i].IP, lInfoArray[i].FriendlyName]);
+      Inc(lCount);
     end;
   end;
+  SetLength(Result, lCount);
 end;
 
 procedure TMainForm.GetLocalIPs(const aComboEdit: TComboEdit);
@@ -757,6 +725,16 @@ end;
 procedure TMainForm.EditMouseLeave(Sender: TObject);
 begin
   HelpCallout.Visible := False;
+end;
+
+type
+  TExpander_Access = class(TExpander);
+
+procedure TMainForm.PanelMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Single);
+begin
+  if Y <= TExpander_Access(Sender).EffectiveHeaderHeight then
+    TExpander(Sender).IsExpanded := not TExpander(Sender).IsExpanded;
 end;
 
 end.

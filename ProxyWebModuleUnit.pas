@@ -852,8 +852,23 @@ begin
 end;
 
 function TProxyWebModule.GetAddress(const aRequest: TWebRequest): String;
+var
+  lConfig: TServiceConfig;
 begin
-  Result := ProxyServerModule.GetAddress(aRequest.Host);
+  ConfigManager.LockConfig(lConfig);
+  try
+    Result := lConfig.ExternalAddress;
+    if Result <> '' then
+      Exit;
+
+    Result := lConfig.ListenIP;
+    if Result <> '' then
+      Exit;
+  finally
+    ConfigManager.UnlockConfig(lConfig);
+  end;
+
+  Result := aRequest.Host;
 end;
 
 initialization

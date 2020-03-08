@@ -12,11 +12,19 @@ uses
   System.Math,
   System.Diagnostics,
   System.Timespan,
+  System.Generics.Collections,
+
   IdUDPServer,
   IdGlobal,
   IdSocketHandle,
-  IdStack,
   IdStackConsts,
+
+  WinApi.Windows,
+  Winapi.IpHlpApi,
+  Winapi.IpTypes,
+  Winapi.IpExport,
+  Winapi.WinSock,
+
   LogUtils;
 
 type
@@ -157,6 +165,34 @@ type
     procedure Add(const aBytes: Int64);
     procedure Reset;
     function GetBytesPerSecond(const aCurrent: Boolean = False; const aWindowTicks: Int64 = 0): Double;
+  end;
+
+  TLocalIPVersion = (IPv4, IPv6);
+
+  TLocalIPInfo = record
+    IP: String;
+    IPVersion: Byte;
+    Metric: Integer;
+    FriendlyName: String;
+  end;
+
+  TLocalIPInfoArray = TArray<TLocalIPInfo>;
+
+  TLocalIPInfoArrayHelper = record helper for TLocalIPInfoArray
+  public
+    function IndexOfIPVersion(const aIPVersion: Byte): Integer;
+    function IndexOfLowestMetric(const aIPVersion: Byte): Integer;
+    function IndexOf(const aIP: String): Integer;
+
+    function IPVersion(const aIPVersion: Byte): TLocalIPInfo;
+    function LowestMetric(const aIPVersion: Byte): TLocalIPInfo;
+
+    function Remove(const aIP: String): TLocalIPInfoArray;
+  end;
+
+  TSocketUtils = class abstract
+  public
+    class function GetLocalIPs: TArray<TLocalIPInfo>; static;
   end;
 
 function Swap16(const aValue: UInt16): UInt16;
@@ -674,6 +710,163 @@ procedure TDataMeter.Reset;
 begin
   FillChar(fSnapshots, SizeOf(fSnapshots), 0);
   fLastTicks := 0;
+end;
+
+{ TSocketUtils }
+
+function RtlIpv4AddressToString(const Addr: PInAddr; S: PChar): PChar; stdcall; external 'Ntdll.dll' name {$IFDEF UNICODE}'RtlIpv4AddressToStringW'{$ELSE}'RtlIpv4AddressToStringA'{$ENDIF};
+function RtlIpv6AddressToString(const Addr: PIn6Addr; S: PChar): PChar; stdcall; external 'Ntdll.dll' name {$IFDEF UNICODE}'RtlIpv6AddressToStringW'{$ELSE}'RtlIpv6AddressToStringA'{$ENDIF};
+
+class function TSocketUtils.GetLocalIPs: TArray<TLocalIPInfo>;
+var
+  lAdapterAddresses, lCurAdapterAddress: PIP_ADAPTER_ADDRESSES;
+  lSize: ULONG;
+  lList: TList<TLocalIPInfo>;
+  lCurAddress: PIP_ADAPTER_UNICAST_ADDRESS;
+  lInfo: TLocalIPInfo;
+begin
+  lAdapterAddresses := nil;
+  lSize := 0;
+  GetAdaptersAddresses(AF_INET, 0, nil, lAdapterAddresses, @lSize);
+  if lSize > 0 then
+  begin
+    GetMem(lAdapterAddresses, lSize);
+    try
+      if GetAdaptersAddresses(AF_INET, 0, nil, lAdapterAddresses, @lSize) = ERROR_SUCCESS then
+      begin
+        lList := TList<TLocalIPInfo>.Create;
+        try
+          lCurAdapterAddress := lAdapterAddresses;
+          while Assigned(lCurAdapterAddress) do
+          begin
+            if (lCurAdapterAddress.IfType <> 24 {LoopBack}) and (lCurAdapterAddress.OperStatus = IfOperStatusUp) then
+            begin
+              lCurAddress := lCurAdapterAddress.FirstUnicastAddress;
+              while Assigned(lCurAddress) do
+              begin
+                if Assigned(lCurAddress.Address.lpSockaddr) then
+                begin
+                  lInfo.IPVersion := 0;
+                  case lCurAddress.Address.lpSockaddr.sin_family of
+                    AF_INET: begin
+                      SetLength(lInfo.IP, 16);
+                      SetLength(lInfo.IP, (NativeInt(RtlIpv4AddressToString(@lCurAddress.Address.lpSockaddr.sin_addr, PChar(lInfo.IP)))-NativeInt(PChar(lInfo.IP))) div SizeOf(Char));
+                      lInfo.IPVersion := 4;
+                      lInfo.Metric := lCurAdapterAddress.Ipv4Metric;
+                    end;
+                    23{AF_INET6}: begin
+                      SetLength(lInfo.IP, 46);
+                      SetLength(lInfo.IP, (NativeInt(RtlIpv6AddressToString(@lCurAddress.Address.lpSockaddr.sin_addr, PChar(lInfo.IP)))-NativeInt(PChar(lInfo.IP))) div SizeOf(Char));
+                      lInfo.IPVersion := 6;
+                      lInfo.Metric := lCurAdapterAddress.Ipv6Metric;
+                    end;
+                  end;
+
+                  if lInfo.IPVersion > 0 then
+                  begin
+                    lInfo.FriendlyName := WideString(lCurAdapterAddress.FriendlyName);
+                    lList.Add(lInfo);
+                  end;
+                end;
+
+                lCurAddress := lCurAddress.Next;
+              end;
+            end;
+            lCurAdapterAddress := lCurAdapterAddress.Next;
+          end;
+
+          Result := lList.ToArray;
+        finally
+          lList.Free;
+        end;
+      end;
+    finally
+      FreeMem(lAdapterAddresses, lSize);
+    end;
+  end;
+end;
+
+{ TLocalIPInfoArrayHelper }
+
+function TLocalIPInfoArrayHelper.IndexOfIPVersion(
+  const aIPVersion: Byte): Integer;
+var
+  i: Integer;
+begin
+  for i := 0 to High(Self) do
+    if (Self[i].IPVersion = aIPVersion) then
+      Exit(i);
+  Result := -1;
+end;
+
+function TLocalIPInfoArrayHelper.IndexOfLowestMetric(
+  const aIPVersion: Byte): Integer;
+var
+  lMetric, i: Integer;
+begin
+  Result := -1;
+  lMetric := MAXINT;
+  for i := 0 to High(Self) do
+    if (Self[i].IPVersion = aIPVersion) and (Self[i].Metric < lMetric) then
+    begin
+      Result := i;
+      lMetric := Self[i].Metric;
+    end;
+end;
+
+function TLocalIPInfoArrayHelper.IndexOf(const aIP: String): Integer;
+var
+  i: Integer;
+begin
+  for i := 0 to High(Self) do
+    if (SameText(Self[i].IP, aIP)) then
+      Exit(i);
+  Result := -1;
+end;
+
+function TLocalIPInfoArrayHelper.IPVersion(
+  const aIPVersion: Byte): TLocalIPInfo;
+var
+  i: Integer;
+begin
+  i := IndexOfIPVersion(aIPVersion);
+  if i > -1 then
+    Result := Self[i]
+  else
+    Result := Default(TLocalIPInfo);
+end;
+
+function TLocalIPInfoArrayHelper.LowestMetric(
+  const aIPVersion: Byte): TLocalIPInfo;
+var
+  i: Integer;
+begin
+  i := IndexOfLowestMetric(aIPVersion);
+  if i > -1 then
+    Result := Self[i]
+  else
+    Result := Default(TLocalIPInfo);
+end;
+
+function TLocalIPInfoArrayHelper.Remove(const aIP: String): TLocalIPInfoArray;
+var
+  i, lCount: Integer;
+begin
+  i := IndexOf(aIP);
+  if i > -1 then
+  begin
+    SetLength(Result, Length(Self)-1);
+    lCount := 0;
+    for i := 0 to High(Self) do
+      if not SameText(Self[i].IP, aIP) then
+      begin
+        Result[lCount] := Self[i];
+        Inc(lCount);
+      end;
+    SetLength(Result, lCount);
+  end
+  else
+    Result := Self;
 end;
 
 end.

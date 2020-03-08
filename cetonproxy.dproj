@@ -1,11 +1,11 @@
 ﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <ProjectGuid>{5ED1EBE1-09C6-4094-812A-4D86C01268FE}</ProjectGuid>
-        <ProjectVersion>18.7</ProjectVersion>
+        <ProjectVersion>18.8</ProjectVersion>
         <FrameworkType>FMX</FrameworkType>
         <MainSource>cetonproxy.dpr</MainSource>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Release</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
         <TargetedPlatforms>1</TargetedPlatforms>
         <AppType>Application</AppType>
@@ -139,6 +139,8 @@
         <DCCReference Include="ffmpeg\src\headers\libavutil_bprint.pas"/>
         <DCCReference Include="ffmpeg\src\headers\libavutil_log.pas"/>
         <DCCReference Include="ffmpeg\src\headers\libavutil_avstring.pas"/>
+        <DCCReference Include="LogUtils.pas"/>
+        <DCCReference Include="FileUtils.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

@@ -22,13 +22,13 @@ uses
   IdTCPServer,
   IdSocketHandle,
   IdGlobal,
-  IdStack,
 
   ProxyServiceModuleUnit,
 
   Ceton,
   HDHR,
-  LogUtils;
+  LogUtils,
+  SocketUtils;
 
 const
   SSDP_PORT = 1900;
@@ -68,7 +68,7 @@ type
 
     procedure ServerException(AContext: TIdContext; AException: Exception);
 
-    function CreateSSDPAlivePacket(const aRequestHost: String): String;
+    function TryCreateSSDPAlivePacket(const aRequestHost: String; out aPacket: String): Boolean;
 
     function GetActive: Boolean;
 
@@ -84,7 +84,7 @@ type
     procedure StartServer;
     procedure StopServer;
 
-    function GetAddress(const aRequestHost: String): String;
+    function TryGetAddress(const aRequestLocalIP: String; out aAddress: String): Boolean;
 
     property Active: Boolean read GetActive;
 
@@ -163,8 +163,7 @@ var
   lConfig: TServiceConfig;
   lListenIP: String;
   lHTTPPort: Integer;
-  lAddresses: TIdStackLocalAddressList;
-  i: Integer;
+  lLocalIPInfo: TLocalIPInfo;
 begin
   if not fServer.Active then
   begin
@@ -201,25 +200,13 @@ begin
       begin
         // If listening on all IPs, have to explicitly create a binding for each local IP
         // so that we can properly read which IP that UDP packets come in on
-        lAddresses := TIdStackLocalAddressList.Create;
-        try
-          TIdStack.IncUsage;
-          try
-            gStack.GetLocalAddressList(lAddresses);
-          finally
-            TIdStack.DecUsage;
-          end;
-
-          for i := 0 to lAddresses.Count-1 do
+        for lLocalIPInfo in TSocketUtils.GetLocalIPs do
+          if lLocalIPInfo.IPVersion = 4 then
             with fDiscoveryServer.Bindings.Add do
             begin
-              IPVersion := lAddresses[i].IPVersion;
-              IP := lAddresses[i].IPAddress;
+              IP := lLocalIPInfo.IP;
               Port := HDHR_DISCOVERY_PORT;
             end;
-        finally
-          lAddresses.Free;
-        end;
       end
       else
       begin
@@ -328,7 +315,7 @@ begin
   begin
     SetLength(lHex, Length(AData)*2);
     BinToHex(AData, PAnsiChar(lHex), Length(AData));
-    TLogger.LogFmt('Received control data from %s: %s', [ABinding.PeerIP, lHex]);
+    TLogger.LogFmt('Received control data from %s on %s: %s', [ABinding.PeerIP, ABinding.IP, lHex]);
 
     if TPacket.TryFromBytes(TBytes(AData), lPacket) then
     begin
@@ -348,26 +335,28 @@ begin
 
             if ((lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_TUNER) or (lDiscovery.DeviceType = HDHOMERUN_DEVICE_TYPE_WILDCARD)) and ((lDiscovery.DeviceID = HDHOMERUN_DEVICE_ID_WILDCARD) or (lDiscovery.DeviceID = lDeviceID)) then
             begin
-              lAddress := GetAddress(ABinding.IP);
-              lTunerCount := Client.TunerCount;
+              if TryGetAddress(ABinding.IP, lAddress) then
+              begin
+                lTunerCount := Client.TunerCount;
 
-              ConfigManager.LockConfig(lConfig);
-              try
-                lDiscovery.DeviceID := lConfig.DeviceID;
-                lDiscovery.TunerCount := lTunerCount;
-                lDiscovery.DeviceAuthStr := 'abcdefg';
-                lDiscovery.BaseURL := AnsiString(Format('http://%s:%d', [lAddress, lConfig.ExternalHTTPPort]));
-                lDiscovery.LineupURL := AnsiString(Format('%s/lineup.json', [lDiscovery.BaseURL]));
-              finally
-                ConfigManager.UnlockConfig(lConfig);
+                ConfigManager.LockConfig(lConfig);
+                try
+                  lDiscovery.DeviceID := lConfig.DeviceID;
+                  lDiscovery.TunerCount := lTunerCount;
+                  lDiscovery.DeviceAuthStr := 'abcdefg';
+                  lDiscovery.BaseURL := AnsiString(Format('http://%s:%d', [lAddress, lConfig.ExternalHTTPPort]));
+                  lDiscovery.LineupURL := AnsiString(Format('%s/lineup.json', [lDiscovery.BaseURL]));
+                finally
+                  ConfigManager.UnlockConfig(lConfig);
+                end;
+
+                lBytes := TPacket.FromDiscovery(False, lDiscovery).ToBytes;
+                SetLength(lHex, Length(lBytes)*2);
+                BinToHex(lBytes, PAnsiChar(lHex), Length(lBytes));
+                TLogger.LogFmt('Sending discovery response: Device ID: %s, Base URL: %s, %s', [IntToHex(lDiscovery.DeviceID, 8), lDiscovery.BaseURL, lHex]);
+
+                AThread.Server.SendBuffer(ABinding.PeerIP, ABinding.PeerPort, TIdBytes(lBytes));
               end;
-
-              lBytes := TPacket.FromDiscovery(False, lDiscovery).ToBytes;
-              SetLength(lHex, Length(lBytes)*2);
-              BinToHex(lBytes, PAnsiChar(lHex), Length(lBytes));
-              TLogger.LogFmt('Sending discovery response: Device ID: %s, Base URL: %s, %s', [IntToHex(lDiscovery.DeviceID, 8), lDiscovery.BaseURL, lHex]);
-
-              AThread.Server.SendBuffer(ABinding.PeerIP, ABinding.PeerPort, TIdBytes(lBytes));
             end;
           end;
           HDHOMERUN_TYPE_DISCOVER_RPY: begin
@@ -406,30 +395,61 @@ begin
 //  fSSDPServer.Send(CreateSSDPAlivePacket);
 end;
 
-function TProxyServerModule.GetAddress(const aRequestHost: String): String;
+function TProxyServerModule.TryGetAddress(const aRequestLocalIP: String; out aAddress: String): Boolean;
 var
   lConfig: TServiceConfig;
+  lAddresses: TLocalIPInfoArray;
+  lModel: TCetonModel;
 begin
   ConfigManager.LockConfig(lConfig);
   try
-    Result := lConfig.ExternalAddress;
-    if Result = '' then
-      Result := lConfig.ListenIP;
+    aAddress := lConfig.ExternalAddress;
+    if aAddress <> '' then
+      Exit(True);
+
+    aAddress := lConfig.ListenIP;
+    if aAddress <> '' then
+      Exit(True);
   finally
     ConfigManager.UnlockConfig(lConfig);
   end;
 
-  if Result = '' then
-    Result := aRequestHost;
+  // Normally we would respond to UPnP or discovery requests with the
+  // local IP that we received the request on, because we know for sure
+  // the remote host is able to reach us on that.
 
-  if Result = '' then
+  // However, if the request is coming from an app on the same computer
+  // as this app, we may get multiple requests from them on different local
+  // IPs.  To avoid confusing the app, we must respond with the same
+  // BaseURL to all of those requests.  e.g.  NextPVR gets confused if it receives
+  // different discovery responses with the same DeviceID, but different
+  // BaseURLs.
+
+  // We can detect if the request is coming from the same computer as this
+  // app by checking if the PeerIP is found in the local address list.
+
+  lAddresses := TSocketUtils.GetLocalIPs;
+
+  if (lAddresses.IndexOf(ARequestLocalIP) > -1) then
   begin
-    TIdStack.IncUsage;
-    try
-      Result := GStack.LocalAddress;
-    finally
-      TIdStack.DecUsage;
+    if ProxyServiceModule.Client.TunerCount = 0 then
+      Exit(False);
+
+    lModel := ProxyServiceModule.Client.Model;
+    if lModel <> TCetonModel.Ethernet then
+    begin
+      // If it's a USB/PCI device, exclude the local ip that was created by
+      // the Ceton device
+      lAddresses := lAddresses.Remove(ProxyServiceModule.Client.ListenIP);
     end;
+
+    aAddress := lAddresses.LowestMetric(4).IP;
+    Result := not SameText(aRequestLocalIP, aAddress);
+  end
+  else
+  begin
+    aAddress := aRequestLocalIP;
+    Result := aAddress <> '';
   end;
 end;
 
@@ -443,10 +463,20 @@ begin
   TLogger.Log('Control execute');
 end;
 
+//  Received SSDP data from 192.168.1.89: M-SEARCH * HTTP/1.1
+//  MX: 5
+//  ST: upnp:rootdevice
+//  MAN: "ssdp:discover"
+//  User-Agent: Linux/3.0.13 UPnP/1.0 LGE_DLNA_SDK/1.6.0 [TV][LG]55LA7400-UD/05.09.11 DLNADOC/1.50
+//  DLNADeviceName.lge.com: %5bTV%5d%5bLG%5d55LA7400-UD
+//  Connection: close
+//  Host: 239.255.255.250:1900
+
 procedure TProxyServerModule.SSDPClientRead(Sender: TObject;
   const AData: TIdBytes; ABinding: TIdSocketHandle);
 var
   lData: UTF8String;
+  lPacket: String;
 begin
   if Length(AData) > 0 then
   begin
@@ -458,8 +488,10 @@ begin
     begin
       if String(lData).Contains('ST: upnp:rootdevice') then
       begin
-        TLogger.LogFmt('Received M-SEARCH for rootdevice from %s', [ABinding.PeerIP]);
-        fDiscoveryServer.Send(ABinding.PeerIP, ABinding.PeerPort, CreateSSDPAlivePacket(ABinding.IP));
+        TLogger.LogFmt('Received M-SEARCH for rootdevice from %s on %s', [ABinding.PeerIP, ABinding.IP]);
+
+        if TryCreateSSDPAlivePacket(ABinding.IP, lPacket) then
+          fDiscoveryServer.Send(ABinding.PeerIP, ABinding.PeerPort, lPacket);
       end;
     end;
   end;
@@ -474,7 +506,7 @@ end;
 //  Cache-Control: max-age=1800
 //  USN: uuid:473366D2-A765-3D61-B466-XXXXX::upnp:rootdevice
 
-function TProxyServerModule.CreateSSDPAlivePacket(const aRequestHost: String): String;
+function TProxyServerModule.TryCreateSSDPAlivePacket(const aRequestHost: String; out aPacket: String): Boolean;
 const
   cSSDPAlive =
     'NOTIFY * HTTP/1.1'#13#10+
@@ -491,17 +523,21 @@ var
   lDeviceUUID: String;
   lConfig: TServiceConfig;
 begin
-  lAddress := GetAddress(ARequestHost);
+  if TryGetAddress(ARequestHost, lAddress) then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lPort := lConfig.ExternalHTTPPort;
+      lDeviceUUID := lConfig.DeviceUUID;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
 
-  ConfigManager.LockConfig(lConfig);
-  try
-    lPort := lConfig.ExternalHTTPPort;
-    lDeviceUUID := lConfig.DeviceUUID;
-  finally
-    ConfigManager.UnlockConfig(lConfig);
-  end;
-
-  Result := Format(cSSDPAlive, [lAddress, lPort, lDeviceUUID]);
+    aPacket := Format(cSSDPAlive, [lAddress, lPort, lDeviceUUID]);
+    Result := True;
+  end
+  else
+    Result := False;
 end;
 
 procedure TProxyServerModule.Log(const aMessage: String);
