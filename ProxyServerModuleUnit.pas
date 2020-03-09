@@ -282,27 +282,12 @@ begin
 
     try
       fSSDPServer.Bindings.Clear;
-
-      if lListenIP = '' then
-      begin
-        // If listening on all IPs, have to explicitly create a binding for each local IP
-        // so that we can properly read which IP that UDP packets come in on
-        for lLocalIPInfo in lLocalIPs do
-          with fSSDPServer.Bindings.Add do
-          begin
-            IP := lLocalIPInfo.IP;
-            Port := 0;
-          end;
-      end
-      else
-      begin
+      for lLocalIPInfo in lLocalIPs do
         with fSSDPServer.Bindings.Add do
         begin
-          IP := lListenIP;
+          IP := lLocalIPInfo.IP;
           Port := 0;
         end;
-      end;
-
       fSSDPServer.Active := True;
     except
       TLogger.Log('Unable to create SSDP server');
@@ -496,8 +481,10 @@ begin
       lAddresses := lAddresses.Remove(ProxyServiceModule.Client.ListenIP);
     end;
 
+    // Choose a local IP that we should respond to
     aAddress := lAddresses.LowestMetric(4).IP;
-    Result := not SameText(aRequestLocalIP, aAddress);
+    // Return whether the local ip that the request came in on is equal to that chosen IP
+    Result := SameText(aRequestLocalIP, aAddress);
   end
   else
   begin
@@ -588,7 +575,7 @@ const
   cSSDPDiscover =
     'M-SEARCH * HTTP/1.1'#13#10+
     'Host: 239.255.255.250:1900'#13#10+
-    'ST: urn:schemas-cetoncorp-com:device:SecureContainer:1'#13#10+
+    'ST: '+{'ssdp:all'}'urn:schemas-cetoncorp-com:device:SecureContainer:1'#13#10+
     'Man: "ssdp:discover"'#13#10+
     'MX: 3'#13#10#13#10;
 begin
@@ -621,7 +608,7 @@ begin
     end
     else if String(lData).StartsWith('NOTIFY', True) then
     begin
-      if String(lData).Contains('NT: urn:schemas-cetoncorp-com:device:SecureContainer:1') then
+      if String(lData).ToLower.Contains('cetoncorp') then
       begin
         TLogger.LogFmt('Received NOTIFY from ceton device %s on %s: %s', [ABinding.PeerIP, ABinding.IP, String(lData)]);
 
@@ -732,7 +719,7 @@ begin
       lValues.NameValueSeparator := ':';
       lValues.Text := String(lData);
 
-      if SameText(Trim(lValues.Values['ST']), 'urn:schemas-cetoncorp-com:device:SecureContainer:1') then
+      if Trim(lValues.Values['ST']).ToLower.Contains('cetoncorp') then
       begin
         lLocation := Trim(lValues.Values['LOCATION']);
 
