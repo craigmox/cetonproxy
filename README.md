@@ -12,9 +12,9 @@ An app that allows a Ceton InfiniTV PCI/USB/ethernet tuner to appear as a Silico
 2. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
 3. Extract the contents of the zip file to a new folder of your choice.
 4. Run cetonproxy.exe.
-5. Choose your IP to your Ceton tuner device in the `Ceton tuner address` drop-down.
+5. Choose the IP to your Ceton tuner device in the `Ceton tuner address` drop-down.
 6. Click the `Channels` section to expand it.
-7  Click `Edit Channels` for it to request the channel list from the Ceton.
+7. Click `Edit Channels` for it to request the channel list from the Ceton.
 8. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
 9. It should now be discoverable as an HDHomeRun device in your DVR software.  
 
