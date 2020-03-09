@@ -3,7 +3,7 @@ object MainForm: TMainForm
   Top = 0
   Caption = 'Ceton HDHomeRun Proxy'
   ClientHeight = 507
-  ClientWidth = 472
+  ClientWidth = 400
   Fill.Kind = Solid
   Position = ScreenCenter
   StyleBook = StyleBook1
@@ -16,21 +16,21 @@ object MainForm: TMainForm
   DesignerMasterStyle = 0
   object VertScrollBox1: TVertScrollBox
     Align = Client
-    Size.Width = 472.000000000000000000
+    Size.Width = 400.000000000000000000
     Size.Height = 507.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
-    Viewport.Width = 472.000000000000000000
+    Viewport.Width = 400.000000000000000000
     Viewport.Height = 507.000000000000000000
     object OuterPanelContainer: TLayout
       Align = Top
-      Size.Width = 472.000000000000000000
+      Size.Width = 400.000000000000000000
       Size.Height = 505.000000000000000000
       Size.PlatformDefault = False
       TabOrder = 0
       object PanelContainer: TLayout
         Align = Top
-        Size.Width = 472.000000000000000000
+        Size.Width = 400.000000000000000000
         Size.Height = 1000.000000000000000000
         Size.PlatformDefault = False
         TabOrder = 0
@@ -44,7 +44,7 @@ object MainForm: TMainForm
           Position.X = 3.000000000000000000
           Position.Y = 68.000000000000000000
           ShowCheck = False
-          Size.Width = 466.000000000000000000
+          Size.Width = 394.000000000000000000
           Size.Height = 20.000000000000000000
           Size.PlatformDefault = False
           Text = 'Advanced Settings'
@@ -111,13 +111,14 @@ object MainForm: TMainForm
             Touch.InteractiveGestures = [LongTap, DoubleTap]
             TabOrder = 0
             ItemHeight = 19.000000000000000000
+            ItemWidth = 300.000000000000000000
             ItemIndex = -1
             Position.X = 210.000000000000000000
             Position.Y = 9.000000000000000000
             Hint = 
               'The local IP address that will be listened on for video data fro' +
               'm the Ceton device.  Leave blank to auto-detect.'
-            Size.Width = 220.000000000000000000
+            Size.Width = 150.000000000000000000
             Size.Height = 22.000000000000000000
             Size.PlatformDefault = False
             OnChangeTracking = ceCetonListenIPChangeTracking
@@ -128,13 +129,14 @@ object MainForm: TMainForm
             Touch.InteractiveGestures = [LongTap, DoubleTap]
             TabOrder = 1
             ItemHeight = 19.000000000000000000
+            ItemWidth = 300.000000000000000000
             ItemIndex = -1
             Position.X = 210.000000000000000000
             Position.Y = 40.000000000000000000
             Hint = 
               'The local IP address that will be listened on for all HDHomeRun ' +
               'requests.  Leave blank to auto-detect.'
-            Size.Width = 220.000000000000000000
+            Size.Width = 150.000000000000000000
             Size.Height = 22.000000000000000000
             Size.PlatformDefault = False
             OnChangeTracking = ceHDHRListenIPChangeTracking
@@ -165,7 +167,7 @@ object MainForm: TMainForm
               'The address that will be given to DVR software to use for HDHome' +
               'Run HTTP video and lineup requests.  Leave blank to auto-detect ' +
               'based on each request received.'
-            Size.Width = 220.000000000000000000
+            Size.Width = 150.000000000000000000
             Size.Height = 22.000000000000000000
             Size.PlatformDefault = False
             OnChangeTracking = eHDHRExternalAddressChangeTracking
@@ -180,6 +182,9 @@ object MainForm: TMainForm
             Hint = 
               'The port that will be given to DVR software to use for HDHomeRun' +
               ' HTTP video and lineup requests.'
+            Size.Width = 71.000000000000000000
+            Size.Height = 22.000000000000000000
+            Size.PlatformDefault = False
             OnChangeTracking = eHDHRExternalHTTPPortChangeTracking
             OnMouseEnter = EditMouseEnter
             OnMouseLeave = EditMouseLeave
@@ -194,7 +199,7 @@ object MainForm: TMainForm
           Position.X = 3.000000000000000000
           Position.Y = 3.000000000000000000
           ShowCheck = False
-          Size.Width = 466.000000000000000000
+          Size.Width = 394.000000000000000000
           Size.Height = 59.000000000000000000
           Size.PlatformDefault = False
           Text = 'Settings'
@@ -202,21 +207,27 @@ object MainForm: TMainForm
           OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
           ContentSize = '39'
-          object eCetonTunerAddress: TEdit
-            Touch.InteractiveGestures = [LongTap, DoubleTap]
-            TabOrder = 0
-            Position.X = 210.000000000000000000
-            Position.Y = 9.000000000000000000
-            Size.Width = 143.000000000000000000
-            Size.Height = 22.000000000000000000
-            Size.PlatformDefault = False
-            OnChangeTracking = eCetonTunerAddressChangeTracking
-          end
           object Label1: TLabel
             Position.X = 15.000000000000000000
             Position.Y = 12.000000000000000000
             Text = 'Ceton tuner address:'
             TabOrder = 1
+          end
+          object eCetonTunerAddress: TComboEdit
+            Touch.InteractiveGestures = [LongTap, DoubleTap]
+            TabOrder = 0
+            ItemHeight = 19.000000000000000000
+            ItemWidth = 300.000000000000000000
+            ItemIndex = -1
+            Position.X = 210.000000000000000000
+            Position.Y = 9.000000000000000000
+            Hint = 
+              'The local IP address that will be listened on for video data fro' +
+              'm the Ceton device.  Leave blank to auto-detect.'
+            Size.Width = 150.000000000000000000
+            Size.Height = 22.000000000000000000
+            Size.PlatformDefault = False
+            OnChangeTracking = eCetonTunerAddressChangeTracking
           end
         end
         object pnlStatistics: TExpander
@@ -226,7 +237,7 @@ object MainForm: TMainForm
           Position.X = 3.000000000000000000
           Position.Y = 120.000000000000000000
           ShowCheck = False
-          Size.Width = 466.000000000000000000
+          Size.Width = 394.000000000000000000
           Size.Height = 354.000000000000000000
           Size.PlatformDefault = False
           Text = 'Statistics'
@@ -246,7 +257,7 @@ object MainForm: TMainForm
             Margins.Left = 10.000000000000000000
             Margins.Top = 9.000000000000000000
             Margins.Right = 10.000000000000000000
-            Size.Width = 446.000000000000000000
+            Size.Width = 374.000000000000000000
             Size.Height = 291.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 0
@@ -255,7 +266,7 @@ object MainForm: TMainForm
           object Layout2: TLayout
             Align = Bottom
             Position.Y = 300.000000000000000000
-            Size.Width = 466.000000000000000000
+            Size.Width = 394.000000000000000000
             Size.Height = 34.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 1
@@ -280,7 +291,7 @@ object MainForm: TMainForm
           Position.X = 3.000000000000000000
           Position.Y = 94.000000000000000000
           ShowCheck = False
-          Size.Width = 466.000000000000000000
+          Size.Width = 394.000000000000000000
           Size.Height = 20.000000000000000000
           Size.PlatformDefault = False
           Text = 'Channels'
@@ -351,7 +362,7 @@ object MainForm: TMainForm
           MinSize = 20.000000000000000000
           Position.Y = 114.000000000000000000
           ShowGrip = False
-          Size.Width = 472.000000000000000000
+          Size.Width = 400.000000000000000000
           Size.Height = 6.000000000000000000
           Size.PlatformDefault = False
         end
@@ -361,7 +372,7 @@ object MainForm: TMainForm
           MinSize = 20.000000000000000000
           Position.Y = 474.000000000000000000
           ShowGrip = False
-          Size.Width = 472.000000000000000000
+          Size.Width = 400.000000000000000000
           Size.Height = 6.000000000000000000
           Size.PlatformDefault = False
         end
@@ -374,7 +385,7 @@ object MainForm: TMainForm
           Position.X = 3.000000000000000000
           Position.Y = 480.000000000000000000
           ShowCheck = False
-          Size.Width = 466.000000000000000000
+          Size.Width = 394.000000000000000000
           Size.Height = 20.000000000000000000
           Size.PlatformDefault = False
           Text = 'Debug'

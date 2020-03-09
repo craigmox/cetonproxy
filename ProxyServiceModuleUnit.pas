@@ -13,12 +13,19 @@ uses
   System.Generics.Collections,
   System.Generics.Defaults,
   System.SyncObjs,
+  System.Diagnostics,
   FMX.Types,
 
+  Winapi.ActiveX,
+
+  REST.Client,
   REST.Types,
   REST.Json,
   REST.Json.Types,
   REST.JsonReflect,
+
+  Xml.XmlDoc,
+  Xml.XmlIntf,
 
   IdStack,
 
@@ -73,6 +80,7 @@ type
   IServiceConfigEvents = interface
     ['{E51631F5-FC88-4FEC-BCF6-9A0F5616CE79}']
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+    procedure DiscoveredCetonDevicesChanged;
     procedure Log(const aMessage: String);
   end;
 
@@ -83,6 +91,7 @@ type
 
     procedure Log(const aMessage: String);
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+    procedure DiscoveredCetonDevicesChanged;
 
     procedure AddListener(const aListener: IServiceConfigEvents);
     procedure RemoveListener(const aListener: IServiceConfigEvents);
@@ -102,6 +111,7 @@ type
 
     procedure Log(const aMessage: String);
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
+    procedure DiscoveredCetonDevicesChanged;
 
     procedure AddListener(const aListener: IServiceConfigEvents);
     procedure RemoveListener(const aListener: IServiceConfigEvents);
@@ -117,9 +127,12 @@ type
     fServiceModule: TProxyServiceModule;
     fChangeEvent: TEvent;
     fConfigChanged: Boolean;
+    fCetonDeviceDiscovered: Boolean;
     fLogCache: TStringBuilder;
 
     procedure SaveLog;
+
+    procedure QueryDiscoveredCetonDevices;
   protected
     // IInterface
     function QueryInterface(const IID: TGUID; out Obj): HResult; stdcall;
@@ -129,9 +142,12 @@ type
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure Log(const aMessage: String);
+    procedure DiscoveredCetonDevicesChanged;
   public
     constructor Create(const aServiceModule: TProxyServiceModule);
     destructor Destroy; override;
+
+    procedure CetonDeviceDiscovered;
 
     procedure Execute; override;
   end;
@@ -144,6 +160,7 @@ type
     fConfigManager: IServiceConfigManager;
     fClient: TCetonClient;
     fThread: TServiceThread;
+    fDiscoveredCetonDeviceList: TDiscoveredCetonDeviceList;
   protected
     procedure LoadConfig;
     procedure SaveConfig;
@@ -153,6 +170,7 @@ type
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure Log(const aMessage: String);
+    procedure DiscoveredCetonDevicesChanged;
 
     // ILogger
     procedure ILogger.Log = HandleLoggerLog;
@@ -161,6 +179,10 @@ type
     { Public declarations }
     property ConfigManager: IServiceConfigManager read fConfigManager;
     property Client: TCetonClient read fClient;
+
+    property DiscoveredCetonDeviceList: TDiscoveredCetonDeviceList read fDiscoveredCetonDeviceList;
+
+    procedure CetonDeviceDiscovered(const aIP, aDescriptionXMLURL: String);
 
     function GetConfigPath: String;
   end;
@@ -378,10 +400,27 @@ begin
   end;
 end;
 
+procedure TServiceConfigManager.DiscoveredCetonDevicesChanged;
+var
+  i: Integer;
+begin
+  Lock;
+  try
+    for i := 0 to fEventListeners.Count-1 do
+    begin
+      fEventListeners[i].DiscoveredCetonDevicesChanged;
+    end;
+  finally
+    Unlock;
+  end;
+end;
+
 { TProxyServiceModule }
 
 procedure TProxyServiceModule.DataModuleCreate(Sender: TObject);
 begin
+  fDiscoveredCetonDeviceList := TDiscoveredCetonDeviceList.Create;
+
   fConfigManager := TServiceConfigManager.Create;
 
   try
@@ -412,6 +451,8 @@ begin
   fConfigManager.RemoveListener(Self);
 
   fClient.Free;
+
+  fDiscoveredCetonDeviceList.Free;
 
   SaveConfig;
 
@@ -567,6 +608,34 @@ begin
   end;
 end;
 
+procedure TProxyServiceModule.CetonDeviceDiscovered(const aIP,
+  aDescriptionXMLURL: String);
+var
+  lDevice: TDiscoveredCetonDevice;
+begin
+  lDevice := DiscoveredCetonDeviceList.FindByIP(aIP);
+  if aDescriptionXMLURL <> lDevice.DescriptionXMLURL then
+  begin
+    lDevice.IP := aIP;
+    lDevice.DescriptionXMLURL := aDescriptionXMLURL;
+    lDevice.Queried := False;
+    lDevice.FriendlyName := '';
+    lDevice.UpdateTicks := TStopWatch.GetTimestamp;
+    DiscoveredCetonDeviceList.Update(lDevice);
+
+    fThread.CetonDeviceDiscovered;
+  end
+  else
+  begin
+    lDevice.UpdateTicks := TStopWatch.GetTimestamp;
+    DiscoveredCetonDeviceList.Update(lDevice);
+  end;
+end;
+
+procedure TProxyServiceModule.DiscoveredCetonDevicesChanged;
+begin
+  // Nothing
+end;
 
 { TServiceThread }
 
@@ -604,27 +673,98 @@ begin
   inherited;
 end;
 
+procedure TServiceThread.QueryDiscoveredCetonDevices;
+var
+  lClient: TRESTClient;
+  lDeviceArray: TArray<TDiscoveredCetonDevice>;
+  lDevice: TDiscoveredCetonDevice;
+  i: Integer;
+  lRequest: TRESTRequest;
+begin
+  lDeviceArray := fServiceModule.DiscoveredCetonDeviceList.ToArray;
+
+  for i := 0 to High(lDeviceArray) do
+  begin
+    if not lDeviceArray[i].Queried then
+    begin
+      lDevice := lDeviceArray[i];
+
+      try
+        lClient := TRESTClient.Create(lDevice.DescriptionXMLURL);
+        try
+          lRequest := TRESTRequest.Create(nil);
+          try
+            lRequest.Timeout := 3000;
+
+            lRequest.Client := lClient;
+            lRequest.Method := TRESTRequestMethod.rmGet;
+      //            lRequest.Resource := 'Services/6/Status.html';
+
+            lRequest.Execute;
+
+            if lRequest.Response.StatusCode = 200 then
+            begin
+              try
+                TDiscoveredCetonDevice.UpdateFromDescriptionXML(lDevice, lRequest.Response.Content);
+              finally
+                lDevice.Queried := True;
+                fServiceModule.DiscoveredCetonDeviceList.Update(lDevice);
+              end;
+            end
+            else
+              TLogger.LogFmt('Unable to reach %s at discovered Ceton device with IP %s: Received status code %d (%s)', [lDevice.DescriptionXMLURL, lDevice.IP, lRequest.Response.StatusCode, lRequest.Response.StatusText]);
+          finally
+            lRequest.Free;
+          end;
+        finally
+          lClient.Free;
+        end;
+      except
+        on e: Exception do
+          TLogger.LogFmt('Unable to reach %s at discovered Ceton device with IP %s: %s', [lDevice.DescriptionXMLURL, lDevice.IP, e.Message]);
+      end;
+    end;
+  end;
+end;
+
 procedure TServiceThread.Execute;
 begin
-  while not Terminated do
-  begin
-    fChangeEvent.WaitFor(1000);
-
-    if fConfigChanged then
+  Coinitialize(nil);
+  try
+    while not Terminated do
     begin
-      fConfigChanged := False;
+      fChangeEvent.WaitFor(1000);
 
-      fServiceModule.SaveConfig;
+      if fConfigChanged then
+      begin
+        fConfigChanged := False;
+
+        fServiceModule.SaveConfig;
+      end;
+
+      SaveLog;
+
+      try
+        fServiceModule.Client.CheckTuner;
+      except
+        on e: Exception do
+          TLogger.Log(e.Message);
+      end;
+
+      if fCetonDeviceDiscovered then
+      begin
+        fCetonDeviceDiscovered := False;
+
+        QueryDiscoveredCetonDevices;
+
+        fServiceModule.ConfigManager.DiscoveredCetonDevicesChanged;
+      end;
+
+      if fServiceModule.DiscoveredCetonDeviceList.Clean then
+        fServiceModule.ConfigManager.DiscoveredCetonDevicesChanged;
     end;
-
-    SaveLog;
-
-    try
-      fServiceModule.Client.CheckTuner;
-    except
-      on e: Exception do
-        TLogger.Log(e.Message);
-    end;
+  finally
+    CoUninitialize;
   end;
 end;
 
@@ -691,6 +831,16 @@ begin
   except
     // Ignore
   end;
+end;
+
+procedure TServiceThread.CetonDeviceDiscovered;
+begin
+  fCetonDeviceDiscovered := True;
+end;
+
+procedure TServiceThread.DiscoveredCetonDevicesChanged;
+begin
+  // Nothing
 end;
 
 end.

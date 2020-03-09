@@ -5,9 +5,14 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.Diagnostics,
+  System.Generics.Collections,
   Winapi.ActiveX,
   FMX.Types,
   FMX.Dialogs,
+
+  REST.Client,
+  REST.Types,
 
   IdHTTPWebBrokerBridge,
   IdBaseComponent,
@@ -22,6 +27,7 @@ uses
   IdTCPServer,
   IdSocketHandle,
   IdGlobal,
+  IdUDPClient,
 
   ProxyServiceModuleUnit,
 
@@ -31,6 +37,7 @@ uses
   SocketUtils;
 
 const
+  SSDP_MULTICAST_GROUP = '239.255.255.250';
   SSDP_PORT = 1900;
 
 type
@@ -42,10 +49,10 @@ type
 
   TProxyServerModule = class(TDataModule, IServiceConfigEvents)
     IdScheduler: TIdSchedulerOfThreadDefault;
-    ServiceTimer: TTimer;
+    RestartServersTimer: TTimer;
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
-    procedure ServiceTimerTimer(Sender: TObject);
+    procedure RestartServersTimerTimer(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -53,22 +60,24 @@ type
 
     fServer: TIdHTTPWebBrokerBridge;
     fDiscoveryServer: TIdUDPServer;
-//    fSSDPServer: TIdIPMCastServer;
     fSSDPClient: TIdIPMCastClient;
+    fSSDPServer: TIdUDPServer;
 //    fControlServer: TIdTCPServer;
-
-    fRestartServers: Boolean;
 
     procedure DiscoveryUDPRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
 
     procedure SSDPClientRead(Sender: TObject; const AData: TIdBytes; ABinding: TIdSocketHandle);
+    procedure SSDPServerRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
 
     procedure ControlTCPConnect(aContext: TIdContext);
     procedure ControlTCPExecute(aContext: TIdContext);
 
     procedure ServerException(AContext: TIdContext; AException: Exception);
 
+    function CreateSSDPDiscoverPacket: String;
     function TryCreateSSDPAlivePacket(const aRequestHost: String; out aPacket: String): Boolean;
+
+    procedure DiscoverCetonDevices;
 
     function GetActive: Boolean;
 
@@ -78,6 +87,7 @@ type
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure Log(const aMessage: String);
+    procedure DiscoveredCetonDevicesChanged;
   public
     { Public declarations }
 
@@ -135,13 +145,17 @@ begin
   fDiscoveryServer.ThreadedEvent := True;
   fDiscoveryServer.OnUDPRead := DiscoveryUDPRead;
 
-//  fSSDPServer := TIdIPMCastServer.Create(Self);
-//  fSSDPServer.MulticastGroup := '239.255.255.250';
-
+  // Used to respond to UPnP discovery requests for HDHomeRun and listen
+  // for "alive" messages
   fSSDPClient := TIdIPMCastClient.Create(Self);
-  fSSDPClient.MulticastGroup := '239.255.255.250';
+  fSSDPClient.MulticastGroup := SSDP_MULTICAST_GROUP;
   fSSDPClient.OnIPMCastRead := SSDPClientRead;
   fSSDPClient.ThreadedEvent := True;
+
+  // Used to discover Ceton devices
+  fSSDPServer := TIdUDPServer.Create(Self);
+  fSSDPServer.ThreadedEvent := True;
+  fSSDPServer.OnUDPRead := SSDPServerRead;
 
 //  fControlServer := TIdTCPServer.Create(Self);
 //  fControlServer.OnConnect := ControlTCPConnect;
@@ -151,6 +165,8 @@ end;
 procedure TProxyServerModule.DataModuleDestroy(Sender: TObject);
 begin
   fConfigManager.RemoveListener(Self);
+
+  fSSDPClient.Active := False;
 end;
 
 function TProxyServerModule.GetActive: Boolean;
@@ -163,6 +179,7 @@ var
   lConfig: TServiceConfig;
   lListenIP: String;
   lHTTPPort: Integer;
+  lLocalIPs: TLocalIPInfoArray;
   lLocalIPInfo: TLocalIPInfo;
 begin
   if not fServer.Active then
@@ -174,6 +191,8 @@ begin
     finally
       ConfigManager.UnlockConfig(lConfig);
     end;
+
+    lLocalIPs := TSocketUtils.GetLocalIPs.Keep(4);
 
     try
       fServer.Bindings.Clear;
@@ -200,13 +219,12 @@ begin
       begin
         // If listening on all IPs, have to explicitly create a binding for each local IP
         // so that we can properly read which IP that UDP packets come in on
-        for lLocalIPInfo in TSocketUtils.GetLocalIPs do
-          if lLocalIPInfo.IPVersion = 4 then
-            with fDiscoveryServer.Bindings.Add do
-            begin
-              IP := lLocalIPInfo.IP;
-              Port := HDHR_DISCOVERY_PORT;
-            end;
+        for lLocalIPInfo in lLocalIPs do
+          with fDiscoveryServer.Bindings.Add do
+          begin
+            IP := lLocalIPInfo.IP;
+            Port := HDHR_DISCOVERY_PORT;
+          end;
       end
       else
       begin
@@ -235,24 +253,63 @@ begin
 
     try
       fSSDPClient.Bindings.Clear;
-      with fSSDPClient.Bindings.Add do
+
+      if lListenIP = '' then
       begin
-        IP := lListenIP;
-        Port := SSDP_PORT;
+        // If listening on all IPs, have to explicitly create a binding for each local IP
+        // so that we can properly read which IP that UDP packets come in on
+        for lLocalIPInfo in lLocalIPs do
+          with fSSDPClient.Bindings.Add do
+          begin
+            IP := lLocalIPInfo.IP;
+            Port := SSDP_PORT;
+          end;
+      end
+      else
+      begin
+        with fSSDPClient.Bindings.Add do
+        begin
+          IP := lListenIP;
+          Port := SSDP_PORT;
+        end;
       end;
+
       fSSDPClient.ReuseSocket := rsTrue;
       fSSDPClient.Active := True;
     except
       TLogger.Log('Unable to bind SSDP listening port');
     end;
 
-{    try
-      fSSDPServer.BoundIP := lListenIP;
-      fSSDPServer.BoundPort := SSDP_PORT;
+    try
+      fSSDPServer.Bindings.Clear;
+
+      if lListenIP = '' then
+      begin
+        // If listening on all IPs, have to explicitly create a binding for each local IP
+        // so that we can properly read which IP that UDP packets come in on
+        for lLocalIPInfo in lLocalIPs do
+          with fSSDPServer.Bindings.Add do
+          begin
+            IP := lLocalIPInfo.IP;
+            Port := 0;
+          end;
+      end
+      else
+      begin
+        with fSSDPServer.Bindings.Add do
+        begin
+          IP := lListenIP;
+          Port := 0;
+        end;
+      end;
+
       fSSDPServer.Active := True;
     except
-      TLogger.Log('Unable to bind SSDP listening port');
-    end;}
+      TLogger.Log('Unable to create SSDP server');
+    end;
+
+    // Send broadcast for UPnP devices
+    DiscoverCetonDevices;
   end;
 end;
 
@@ -286,11 +343,12 @@ begin
     // Ignore
   end;
 
-{  try
+  try
     fSSDPServer.Active := False;
+    fSSDPServer.Bindings.Clear;
   except
     // Ignore
-  end;}
+  end;
 end;
 
 procedure TProxyServerModule.ServerException(AContext: TIdContext;
@@ -377,22 +435,17 @@ begin
     begin
       if TServiceConfigSection.Other in aSections then
       begin
-        fRestartServers := True;
+        RestartServersTimer.Enabled := True;
       end;
     end);
 end;
 
-procedure TProxyServerModule.ServiceTimerTimer(Sender: TObject);
+procedure TProxyServerModule.RestartServersTimerTimer(Sender: TObject);
 begin
-  if fRestartServers then
-  begin
-    fRestartServers := False;
+  RestartServersTimer.Enabled := False;
 
-    StopServer;
-    StartServer;
-  end;
-
-//  fSSDPServer.Send(CreateSSDPAlivePacket);
+  StopServer;
+  StartServer;
 end;
 
 function TProxyServerModule.TryGetAddress(const aRequestLocalIP: String; out aAddress: String): Boolean;
@@ -463,20 +516,92 @@ begin
   TLogger.Log('Control execute');
 end;
 
-//  Received SSDP data from 192.168.1.89: M-SEARCH * HTTP/1.1
-//  MX: 5
-//  ST: upnp:rootdevice
-//  MAN: "ssdp:discover"
-//  User-Agent: Linux/3.0.13 UPnP/1.0 LGE_DLNA_SDK/1.6.0 [TV][LG]55LA7400-UD/05.09.11 DLNADOC/1.50
-//  DLNADeviceName.lge.com: %5bTV%5d%5bLG%5d55LA7400-UD
-//  Connection: close
-//  Host: 239.255.255.250:1900
+{Description: Ceton InfiniTV MOCUR (00-00-22-00-00-XX-XX-XX)
+DeviceType: urn:schemas-cetoncorp-com:device:SecureContainer:1
+FriendlyName: Ceton InfiniTV Ethernet (00-XX-XX-XX)
+Manufacturer: Ceton Corporation
+ManufacturerUrl: http://www.cetoncorp.com/
+ModelName: Ceton InfiniTV MOCUR (00-00-22-00-00-XX-XX-XX)
+ModelNumber: 0.0.0.9
+PresentationUrl: http://192.168.1.132/Services/System.html
+SerialNumber: 00-00-22-00-00-XX-XX-XX
+UDN: uuid:XXX-XXX-XXX
+}
+{Process cetonproxy.exe (25300)
+Debug Output:
+[2020-03-08 14:29:28.305] Received NOTIFY from 192.168.1.132 on 192.168.1.8: NOTIFY * HTTP/1.1
+HOST: 239.255.255.250:1900
+CACHE-CONTROL: max-age=1800
+LOCATION: http://192.168.1.132/description.xml
+NT: uuid:89333102-EBE5-11D8-AC9A-000008098100
+NTS: ssdp:alive
+SERVER: Linux/3.0.1+, UPnP/1.0
+USN: uuid:XXX-XXX-XXX
+}
+{Process cetonproxy.exe (25300)
+Debug Output:
+[2020-03-08 14:29:28.302] Received NOTIFY from 192.168.1.132 on 192.168.1.8: NOTIFY * HTTP/1.1
+HOST: 239.255.255.250:1900
+CACHE-CONTROL: max-age=1800
+LOCATION: http://192.168.1.132/description.xml
+NT: upnp:rootdevice
+NTS: ssdp:alive
+SERVER: Linux/3.0.1+, UPnP/1.0
+USN: uuid:XXX-XXX-XXX::upnp:rootdevice
+}
+{Debug Output:
+[2020-03-08 14:29:28.309] Received NOTIFY from 192.168.1.132 on 192.168.1.116: NOTIFY * HTTP/1.1
+HOST: 239.255.255.250:1900
+CACHE-CONTROL: max-age=1800
+LOCATION: http://192.168.1.132/description.xml
+NT: upnp:rootdevice
+NTS: ssdp:alive
+SERVER: Linux/3.0.1+, UPnP/1.0
+USN: uuid:XXX-XXX-XXX::upnp:rootdevice
+}
+{[2020-03-08 14:29:28.313] Received NOTIFY from 192.168.1.132 on 192.168.1.8: NOTIFY * HTTP/1.1
+HOST: 239.255.255.250:1900
+CACHE-CONTROL: max-age=1800
+LOCATION: http://192.168.1.132/description.xml
+NT: urn:schemas-cetoncorp-com:device:SecureContainer:1
+NTS: ssdp:alive
+SERVER: Linux/3.0.1+, UPnP/1.0
+USN: uuid:XXX-XXX-XXX::urn:schemas-cetoncorp-com:device:SecureContainer:1
+}
+{Debug Output:
+[2020-03-08 14:51:25.922] Received M-SEARCH from 192.168.1.10 on 192.168.1.8: M-SEARCH * HTTP/1.1
+Host: 239.255.255.250:1900
+ST: urn:schemas-cetoncorp-com:device:SecureContainer:1
+Man: "ssdp:discover"
+MX: 3
+}
+{Debug Output:
+[2020-03-08 14:51:26.021] Received M-SEARCH from 192.168.1.10 on 192.168.1.8: M-SEARCH * HTTP/1.1
+Host: 239.255.255.250:1900
+ST: uuid:89333102-EBE5-11D8-AC9A-000008085F10
+Man: "ssdp:discover"
+MX: 3
+}
+
+function TProxyServerModule.CreateSSDPDiscoverPacket: String;
+const
+  cSSDPDiscover =
+    'M-SEARCH * HTTP/1.1'#13#10+
+    'Host: 239.255.255.250:1900'#13#10+
+    'ST: urn:schemas-cetoncorp-com:device:SecureContainer:1'#13#10+
+    'Man: "ssdp:discover"'#13#10+
+    'MX: 3'#13#10#13#10;
+begin
+  Result := Format(cSSDPDiscover, []);
+end;
 
 procedure TProxyServerModule.SSDPClientRead(Sender: TObject;
   const AData: TIdBytes; ABinding: TIdSocketHandle);
 var
   lData: UTF8String;
   lPacket: String;
+  lValues: TStringList;
+  lLocation: String;
 begin
   if Length(AData) > 0 then
   begin
@@ -492,6 +617,26 @@ begin
 
         if TryCreateSSDPAlivePacket(ABinding.IP, lPacket) then
           fDiscoveryServer.Send(ABinding.PeerIP, ABinding.PeerPort, lPacket);
+      end;
+    end
+    else if String(lData).StartsWith('NOTIFY', True) then
+    begin
+      if String(lData).Contains('NT: urn:schemas-cetoncorp-com:device:SecureContainer:1') then
+      begin
+        TLogger.LogFmt('Received NOTIFY from ceton device %s on %s: %s', [ABinding.PeerIP, ABinding.IP, String(lData)]);
+
+        lValues := TStringList.Create;
+        try
+          lValues.CaseSensitive := False;
+          lValues.NameValueSeparator := ':';
+          lValues.Text := String(lData);
+
+          lLocation := Trim(lValues.Values['LOCATION']);
+          if lLocation <> '' then
+            ProxyServiceModule.CetonDeviceDiscovered(ABinding.PeerIP, lLocation);
+        finally
+          lValues.Free;
+        end;
       end;
     end;
   end;
@@ -541,6 +686,65 @@ begin
 end;
 
 procedure TProxyServerModule.Log(const aMessage: String);
+begin
+  // Nothing
+end;
+
+procedure TProxyServerModule.DiscoverCetonDevices;
+var
+  i: Integer;
+begin
+  if fSSDPServer.Active then
+  begin
+    ProxyServiceModule.DiscoveredCetonDeviceList.DiscoveryStarted;
+
+    for i := 0 to fSSDPServer.Bindings.Count-1 do
+      fSSDPServer.Bindings[i].SendTo(SSDP_MULTICAST_GROUP, SSDP_PORT, CreateSSDPDiscoverPacket);
+  end;
+end;
+
+{Debug Output:
+[2020-03-08 21:09:18.964] Ceton Incoming from 192.168.1.116: HTTP/1.1 200 OK
+CACHE-CONTROL: max-age=300
+DATE: Thu, 15 Jan 1970 03:19:09 GMT
+EXT:
+LOCATION: http://192.168.1.132/description.xml
+SERVER: Linux/3.0.1+, UPnP/1.0
+ST: urn:schemas-cetoncorp-com:device:SecureContainer:1
+USN: uuid:XXX-XXX-XXX::urn:schemas-cetoncorp-com:device:SecureContainer:1}
+
+procedure TProxyServerModule.SSDPServerRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
+var
+  lData: UTF8String;
+  lValues: TStringList;
+  lLocation: String;
+begin
+  if Length(AData) > 0 then
+  begin
+    SetLength(lData, Length(AData));
+    Move(AData[0], lData[Low(lData)], Length(AData));
+
+    TLogger.LogFmt('Received SSDP discovery response from %s on %s: %s', [ABinding.PeerIP, ABinding.IP, String(lData)]);
+
+    lValues := TStringList.Create;
+    try
+      lValues.CaseSensitive := False;
+      lValues.NameValueSeparator := ':';
+      lValues.Text := String(lData);
+
+      if SameText(Trim(lValues.Values['ST']), 'urn:schemas-cetoncorp-com:device:SecureContainer:1') then
+      begin
+        lLocation := Trim(lValues.Values['LOCATION']);
+
+        ProxyServiceModule.CetonDeviceDiscovered(ABinding.PeerIP, lLocation);
+      end;
+    finally
+      lValues.Free;
+    end;
+  end;
+end;
+
+procedure TProxyServerModule.DiscoveredCetonDevicesChanged;
 begin
   // Nothing
 end;

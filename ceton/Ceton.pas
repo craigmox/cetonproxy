@@ -42,6 +42,8 @@ const
 
   cStatsUpdateIntervalMs = 500;
 
+  cCetonDiscoveryDiscardDeviceMs = 10000;
+
 type
   ECetonClosedError = class(Exception);
   ECetonError = class(Exception);
@@ -378,6 +380,31 @@ type
 
     function Read(var Buffer; Count: Longint): Longint; override;
     function Seek(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
+  end;
+
+  TDiscoveredCetonDevice = record
+    IP: String;
+    DescriptionXMLURL: String;
+    Queried: Boolean;
+    FriendlyName: String;
+    UpdateTicks: Int64;
+    class procedure UpdateFromDescriptionXML(var aDevice: TDiscoveredCetonDevice; const aXMLContent: String); static;
+  end;
+
+  TDiscoveredCetonDeviceList = class
+  private
+    fList: TList<TDiscoveredCetonDevice>;
+    fLastDiscoveryTicks: Int64;
+    procedure Lock;
+    procedure Unlock;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Update(const aDevice: TDiscoveredCetonDevice);
+    procedure DiscoveryStarted;
+    function Clean: Boolean;
+    function FindByIP(const aIP: String): TDiscoveredCetonDevice;
+    function ToArray: TArray<TDiscoveredCetonDevice>;
   end;
 
 implementation
@@ -1773,6 +1800,138 @@ begin
     SetLength(fClients, aIndex+1);
   Result := @fClients[aIndex];
   Result.Active := True;
+end;
+
+{ TDiscoveredCetonDeviceList }
+
+constructor TDiscoveredCetonDeviceList.Create;
+begin
+  fList := TList<TDiscoveredCetonDevice>.Create;
+end;
+
+procedure TDiscoveredCetonDeviceList.Lock;
+begin
+  TMonitor.Enter(Self);
+end;
+
+procedure TDiscoveredCetonDeviceList.Unlock;
+begin
+  TMonitor.Exit(Self);
+end;
+
+destructor TDiscoveredCetonDeviceList.Destroy;
+begin
+  fList.Free;
+
+  inherited;
+end;
+
+procedure TDiscoveredCetonDeviceList.Update(const aDevice: TDiscoveredCetonDevice);
+var
+  i: Integer;
+  lIndex: Integer;
+begin
+  Lock;
+  try
+    lIndex := -1;
+    for i := 0 to fList.Count-1 do
+    begin
+      if SameText(fList[i].IP, aDevice.IP) then
+      begin
+        lIndex := i;
+        Break;
+      end;
+    end;
+
+    if lIndex = -1 then
+      fList.Add(aDevice)
+    else
+    begin
+      fList[lIndex] := aDevice;
+    end;
+  finally
+    Unlock;
+  end;
+end;
+
+function TDiscoveredCetonDeviceList.Clean: Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  Lock;
+  try
+    for i := fList.Count-1 downto 0 do
+    begin
+      if fList[i].UpdateTicks < fLastDiscoveryTicks-cCetonDiscoveryDiscardDeviceMs then
+      begin
+        fList.Delete(i);
+        Result := True;
+      end;
+    end;
+  finally
+    Unlock;
+  end;
+end;
+
+procedure TDiscoveredCetonDeviceList.DiscoveryStarted;
+begin
+  Lock;
+  try
+    fLastDiscoveryTicks := TStopwatch.GetTimeStamp;
+  finally
+    Unlock;
+  end;
+end;
+
+function TDiscoveredCetonDeviceList.ToArray: TArray<TDiscoveredCetonDevice>;
+begin
+  Lock;
+  try
+    Result := fList.ToArray;
+  finally
+    Unlock;
+  end;
+end;
+
+function TDiscoveredCetonDeviceList.FindByIP(
+  const aIP: String): TDiscoveredCetonDevice;
+var
+  i: Integer;
+begin
+  Lock;
+  try
+    for i := 0 to fList.Count-1 do
+      if SameText(fList[i].IP, aIP) then
+        Exit(fList[i]);
+    Result := Default(TDiscoveredCetonDevice);
+  finally
+    Unlock;
+  end;
+end;
+
+{ TDiscoveredCetonDevice }
+
+class procedure TDiscoveredCetonDevice.UpdateFromDescriptionXML(
+  var aDevice: TDiscoveredCetonDevice; const aXMLContent: String);
+var
+  lXML: IXMLDocument;
+  lRootNode, lDeviceNode, lNode: IXMLNode;
+begin
+  lXML := TXMLDocument.Create(nil);
+  lXML.LoadFromXML(aXMLContent);
+
+  lRootNode := lXML.ChildNodes.FindNode('root');
+  if Assigned(lRootNode) then
+  begin
+    lDeviceNode := lRootNode.ChildNodes.FindNode('device');
+    if Assigned(lDeviceNode) then
+    begin
+      lNode := lDeviceNode.ChildNodes.FindNode('friendlyName');
+      if Assigned(lNode) then
+        aDevice.FriendlyName := lNode.Text;
+    end;
+  end;
 end;
 
 end.

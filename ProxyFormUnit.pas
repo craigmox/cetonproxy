@@ -66,7 +66,6 @@ type
     btnEditChannels: TButton;
     StyleBook1: TStyleBook;
     VertScrollBox1: TVertScrollBox;
-    eCetonTunerAddress: TEdit;
     Label1: TLabel;
     SaveTimer: TTimer;
     Label2: TLabel;
@@ -99,6 +98,7 @@ type
     Label8: TLabel;
     HelpCallout: TCalloutRectangle;
     lblHelp: TLabel;
+    eCetonTunerAddress: TComboEdit;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
@@ -130,8 +130,9 @@ type
 
     function GetClient: TCetonClient;
 
-    function GetLocalIPs: TArray<String>; overload;
-    procedure GetLocalIPs(const aComboEdit: TComboEdit); overload;
+    function GetLocalIPs: TArray<String>;
+    procedure UpdateLocalIPs(const aComboEdit: TComboEdit);
+    procedure UpdateDiscoveredCetonDevices(const aComboEdit: TComboEdit);
 
     function ExtractIP(const aComboEdit: TComboEdit): String;
 
@@ -151,6 +152,7 @@ type
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure Log(const aMessage: String);
+    procedure DiscoveredCetonDevicesChanged;
   public
     { Public declarations }
   end;
@@ -229,8 +231,9 @@ begin
   fConfigManager := ProxyServiceModule.ConfigManager;
   fConfigManager.AddListener(Self);
 
-  GetLocalIPs(ceCetonListenIP);
-  GetLocalIPs(ceHDHRListenIP);
+  UpdateLocalIPs(ceCetonListenIP);
+  UpdateLocalIPs(ceHDHRListenIP);
+  UpdateDiscoveredCetonDevices(eCetonTunerAddress);
 
   ProxyServerModule.StartServer;
 end;
@@ -447,7 +450,7 @@ begin
   begin
     ConfigManager.LockConfig(lConfig);
     try
-      lConfig.Ceton.TunerAddress := eCetonTunerAddress.Text;
+      lConfig.Ceton.TunerAddress := ExtractIP(eCetonTunerAddress);
     finally
       ConfigManager.UnlockConfig(lConfig);
     end;
@@ -612,11 +615,17 @@ begin
   SetLength(Result, lCount);
 end;
 
-procedure TMainForm.GetLocalIPs(const aComboEdit: TComboEdit);
+procedure TMainForm.UpdateLocalIPs(const aComboEdit: TComboEdit);
 begin
-  aComboEdit.Items.Clear;
-  aComboEdit.Items.AddStrings(GetLocalIPs);
-  aComboEdit.RecalcSize;
+  aComboEdit.BeginUpdate;
+  try
+    aComboEdit.Items.Clear;
+    aComboEdit.Items.AddStrings(GetLocalIPs);
+    if aComboEdit.Count = 0 then
+      aComboEdit.Items.Add('');
+  finally
+    aComboEdit.EndUpdate;
+  end;
 end;
 
 function TMainForm.ExtractIP(const aComboEdit: TComboEdit): String;
@@ -750,6 +759,38 @@ procedure TMainForm.PanelMouseDown(Sender: TObject; Button: TMouseButton;
 begin
   if Y <= TExpander_Access(Sender).EffectiveHeaderHeight then
     TExpander(Sender).IsExpanded := not TExpander(Sender).IsExpanded;
+end;
+
+procedure TMainForm.UpdateDiscoveredCetonDevices(const aComboEdit: TComboEdit);
+var
+  lDevices: TArray<TDiscoveredCetonDevice>;
+  i: Integer;
+begin
+  aComboEdit.BeginUpdate;
+  try
+    aComboEdit.Items.Clear;
+    lDevices := ProxyServiceModule.DiscoveredCetonDeviceList.ToArray;
+    for i := 0 to High(lDevices) do
+    begin
+      if lDevices[i].FriendlyName <> '' then
+        aComboEdit.Items.Add(Format('%s (%s)', [lDevices[i].IP, lDevices[i].FriendlyName]))
+      else
+        aComboEdit.Items.Add(Format('%s', [lDevices[i].IP]));
+    end;
+    if aComboEdit.Count = 0 then
+      aComboEdit.Items.Add('');
+  finally
+    aComboEdit.EndUpdate;
+  end;
+end;
+
+procedure TMainForm.DiscoveredCetonDevicesChanged;
+begin
+  TThread.ForceQueue(nil,
+    procedure()
+    begin
+      UpdateDiscoveredCetonDevices(eCetonTunerAddress);
+    end);
 end;
 
 end.

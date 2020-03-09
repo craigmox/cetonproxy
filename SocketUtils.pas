@@ -189,6 +189,7 @@ type
     function LowestMetric(const aIPVersion: Byte): TLocalIPInfo;
 
     function Remove(const aIP: String): TLocalIPInfoArray;
+    function Keep(const aIPVersion: Byte): TLocalIPInfoArray;
   end;
 
   TSocketUtils = class abstract
@@ -881,6 +882,22 @@ begin
   end
   else
     Result := Self;
+end;
+
+function TLocalIPInfoArrayHelper.Keep(
+  const aIPVersion: Byte): TLocalIPInfoArray;
+var
+  i, lCount: Integer;
+begin
+  SetLength(Result, Length(Self));
+  lCount := 0;
+  for i := 0 to High(Self) do
+    if not Self[i].IPVersion <> aIPVersion then
+    begin
+      Result[lCount] := Self[i];
+      Inc(lCount);
+    end;
+  SetLength(Result, lCount);
 end;
 
 end.

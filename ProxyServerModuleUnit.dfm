@@ -9,8 +9,10 @@ object ProxyServerModule: TProxyServerModule
     Left = 88
     Top = 56
   end
-  object ServiceTimer: TTimer
-    OnTimer = ServiceTimerTimer
+  object RestartServersTimer: TTimer
+    Enabled = False
+    Interval = 2000
+    OnTimer = RestartServersTimerTimer
     Left = 144
     Top = 56
   end
