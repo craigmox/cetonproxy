@@ -1,5 +1,5 @@
 # cetonproxy
-An app that allows a Ceton InfiniTV PCI/USB/network tuner to appear as a SiliconDust HDHomeRun to DVR apps.
+An app that allows a Ceton InfiniTV PCI/USB/ethernet tuner to appear as a SiliconDust HDHomeRun to DVR apps.
 
 ## Supported DVR software:
 - NextPVR v5
@@ -8,32 +8,15 @@ An app that allows a Ceton InfiniTV PCI/USB/network tuner to appear as a Silicon
 
 # Install
 
-1. If you have a network Ceton device, you do not need any drivers installed.  But if you have a PCI or USB device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).  In either case, you do not need Windows Media Center.  Also, cetonproxy does not use BDA drivers which were removed from Windows 10 a while back, so it will work on the latest version of Windows 10.
+1. If you have an ethernet Ceton device, you do not need any drivers installed.  But if you have a PCI or USB device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).  In either case, you do not need Windows Media Center.  Also, cetonproxy does not use BDA drivers which were removed from Windows 10 a while back, so it will work on the latest version of Windows 10.
 2. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
 3. Extract the contents of the zip file to a new folder of your choice.
 4. Run cetonproxy.exe.
-5. Fill in `Ceton tuner address` with the IP to your ceton tuner device.
-6. Fill in the two `Listen IP` settings according to the following section.
-7. Leave `Listen HTTP Port` set to `5004`.
-8. Click `Edit Channels` for it to request the channel list from the Ceton.
-9. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
-10. It should now be discoverable as an HDHomeRun device in your DVR software.  
-
-## Configuring Listen IPs
-### Network Ceton device
-You should be able to leave both `Listen IP` settings empty.  
-### PCI/USB Ceton devices:
-Your computer with the device should have at least two network adapters.  One provides IP access to the tuner.  The other connects your PC to the rest of your network.  You need the IP addresses for both of these.  
-1.  In Windows 10, click the start menu, type in `Network Connections`, and press enter.
-2.  Double click the Ceton InfiniTV PCI/USB adapter.
-3.  Click the `Details...` button.
-4.  Take the IP listed as `IPv4 Address` and fill it into the `Listen IP for Ceton` setting in cetonproxy.
-5.  Go back to the network connections window.
-6.  Double click the other adapter, likely labeled `Ethernet`.
-7.  Click the `Details...` button.
-8.  Take the IP listed as `IPv4 Address` and fill it into the `Listen IP as HDHomeRun` setting in cetonproxy.
-
-Both of these IP addresses can also be verified by running `ipconfig /all` in a command prompt. 
+5. Choose your IP to your Ceton tuner device in the `Ceton tuner address` drop-down.
+6. Click the `Channels` section to expand it.
+7  Click `Edit Channels` for it to request the channel list from the Ceton.
+8. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
+9. It should now be discoverable as an HDHomeRun device in your DVR software.  
 
 # Testing
 In a web browser, connect to `http://<Listen IP as HDHomeRun setting>:5004/lineup.xml` to make sure it responds with the set of channels you configured above.  If you did not set a listen IP, then use the IP given to your computer that is running cetonproxy.
