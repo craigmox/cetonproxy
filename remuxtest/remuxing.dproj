@@ -66,7 +66,7 @@
         <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
-        <Debugger_RunParams>SampleCh789P1.ts testoutput.ts</Debugger_RunParams>
+        <Debugger_RunParams>SampleCh76P467.ts testoutput.ts</Debugger_RunParams>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">

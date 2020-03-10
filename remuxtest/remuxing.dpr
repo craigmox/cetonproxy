@@ -90,6 +90,8 @@ uses
   {$ENDIF }
   System.IOUtils,
   System.Classes,
+  System.Math,
+  FMX.Types,
   FFTypes in '..\ffmpeg\src\headers\FFTypes.pas',
   libavcodec in '..\ffmpeg\src\headers\libavcodec.pas',
   libavcodec_avfft in '..\ffmpeg\src\headers\libavcodec_avfft.pas',
@@ -135,6 +137,30 @@ uses
   libswscale in '..\ffmpeg\src\headers\libswscale.pas',
   FFUtils in '..\ffmpeg\src\examples\FFUtils.pas';
 
+//function sprintf(CharBuf: PAnsiChar; const Format: PAnsiChar): Integer; cdecl; varargs; external 'msvcrt.dll';
+
+procedure logcallback(avcl: Pointer; level: Integer; const fmt: PAnsiChar; vl: PAnsiChar); cdecl;
+var
+  lBuf: array[0..1024] of AnsiChar;
+  lInt: Integer;
+begin
+  if level <= AV_LOG_INFO then
+  begin
+    if Assigned(avcl) then
+    begin
+      if AnsiString(PAVClass(PPointer(avcl)^)^.class_name) = 'AVFormatContext'  then
+      begin
+        if Assigned(PAVFormatContext(Avcl)^.pb) and Assigned(PAVFormatContext(Avcl)^.pb.opaque) then
+        begin
+          lInt := 1;
+          av_log_format_line(avcl, level, fmt, vl, @lBuf, SizeOf(lBuf)-1, @lint);
+          Write(TFileStream(PAVFormatContext(Avcl)^.pb.opaque).FileName + ': ' + AnsiString(lBuf));
+        end;
+      end;
+    end;
+  end;
+end;
+
 procedure log_packet(const fmt_ctx: PAVFormatContext; const pkt: PAVPacket; const tag: PAnsiChar);
 var
   time_base: PAVRational;
@@ -161,6 +187,17 @@ begin
   Result := tfilestream(opaque).Write(buf^, buf_size);
 end;
 
+function GetErrorStr(const aErrorCode: Integer): String;
+var
+ errbuf: array[0..AV_ERROR_MAX_STRING_SIZE-1] of AnsiChar;
+begin
+  FillChar(errbuf[0], SizeOf(errbuf), 0);
+  if av_strerror(aErrorCode, @errbuf, AV_ERROR_MAX_STRING_SIZE) = 0 then
+    Result := String(errbuf)
+  else
+    Result := '';
+end;
+
 function main(): Integer;
 var
 //  ofmt: PAVOutputFormat;
@@ -182,9 +219,15 @@ var
   in_codecpar: PAVCodecParameters;
 
   infile, outfile: TFileStream;
+
+  lastdts, newdts: Int64;
+  lStreamdts: array[0..10] of int64;
 label
   the_end;
 begin
+//  av_log_set_level(AV_LOG_TRACE);
+  av_log_set_callback(logcallback);
+
 //  ofmt := nil;
   ifmt_ctx := nil;
   ofmt_ctx := nil;
@@ -245,7 +288,7 @@ begin
     in_stream := PPtrIdx(ifmt_ctx.streams, i);
     in_codecpar := in_stream.codecpar;
 
-    if avformat_match_stream_specifier(ifmt_ctx, in_stream, 'p:1') = 0 then
+    if avformat_match_stream_specifier(ifmt_ctx, in_stream, 'p:467') = 0 then
     begin
       stream_mapping[i] := -1;
       Continue;
@@ -304,38 +347,57 @@ begin
     goto the_end;
   end;
 
+  for i := 0 to High(lastdts) do
+    lStreamdts[i] := 0;
+
   while True do
   begin
     ret := av_read_frame(ifmt_ctx, @pkt);
     if ret < 0 then
       Break;
 
-    in_stream  := PPtrIdx(ifmt_ctx.streams, pkt.stream_index);
-    if (pkt.stream_index >= Length(stream_mapping)) or
-       (stream_mapping[pkt.stream_index] < 0) then
+    if pkt.size > 0 then
     begin
-      av_packet_unref(@pkt);
-      Continue;
+      in_stream  := PPtrIdx(ifmt_ctx.streams, pkt.stream_index);
+      if (pkt.stream_index >= Length(stream_mapping)) or
+         (stream_mapping[pkt.stream_index] < 0) then
+      begin
+        av_packet_unref(@pkt);
+        Continue;
+      end;
+
+      pkt.stream_index := stream_mapping[pkt.stream_index];
+      out_stream := PPtrIdx(ofmt_ctx.streams, pkt.stream_index);
+  //    log_packet(ifmt_ctx, @pkt, 'in');
+
+//      if pkt.dts > lstreamdts[pkt.stream_index] then
+      begin
+        lstreamdts[pkt.stream_index] := pkt.dts;
+//        if pkt.stream_index = 1 then
+//          log.d('in dts %d', [pkt.dts]);
+
+        (* copy packet *)
+        pkt.pts := av_rescale_q_rnd(pkt.pts, in_stream.time_base, out_stream.time_base, Ord(AV_ROUND_NEAR_INF) or Ord(AV_ROUND_PASS_MINMAX));
+        pkt.dts := av_rescale_q_rnd(pkt.dts, in_stream.time_base, out_stream.time_base, Ord(AV_ROUND_NEAR_INF) or Ord(AV_ROUND_PASS_MINMAX));
+        pkt.duration := av_rescale_q(pkt.duration, in_stream.time_base, out_stream.time_base);
+        pkt.pos := -1;
+    //    log_packet(ofmt_ctx, @pkt, 'out');
+
+//        if pkt.stream_index = 1 then
+//          log.d('out dts %d', [pkt.dts]);
+
+//        ret := av_interleaved_write_frame(ofmt_ctx, @pkt);
+            Ret := av_write_frame(ofmt_ctx, @pkt);
+          if ret < 0 then
+          begin
+            Writeln(ErrOutput, 'Error muxing packet '+GetErrorStr(ret));
+            Break;
+          end;
+      end
+{      else
+        log.d('invalid dts on %d: %d', [pkt.stream_index, pkt.dts])};
     end;
 
-    pkt.stream_index := stream_mapping[pkt.stream_index];
-    out_stream := PPtrIdx(ofmt_ctx.streams, pkt.stream_index);
-//    log_packet(ifmt_ctx, @pkt, 'in');
-
-    (* copy packet *)
-    pkt.pts := av_rescale_q_rnd(pkt.pts, in_stream.time_base, out_stream.time_base, Ord(AV_ROUND_NEAR_INF) or Ord(AV_ROUND_PASS_MINMAX));
-    pkt.dts := av_rescale_q_rnd(pkt.dts, in_stream.time_base, out_stream.time_base, Ord(AV_ROUND_NEAR_INF) or Ord(AV_ROUND_PASS_MINMAX));
-    pkt.duration := av_rescale_q(pkt.duration, in_stream.time_base, out_stream.time_base);
-    pkt.pos := -1;
-//    log_packet(ofmt_ctx, @pkt, 'out');
-
-//    ret := av_interleaved_write_frame(ofmt_ctx, @pkt);
-      Ret := av_write_frame(ofmt_ctx, @pkt);
-    if ret < 0 then
-    begin
-      Writeln(ErrOutput, 'Error muxing packet');
-      Break;
-    end;
     av_packet_unref(@pkt);
   end;
 
