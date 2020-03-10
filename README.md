@@ -8,7 +8,7 @@ An app that allows a Ceton InfiniTV PCI/USB/ethernet tuner to appear as a Silico
 
 # Install
 
-1. If you have an ethernet Ceton device, you do not need any drivers installed.  But if you have a PCI or USB device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).  In either case, you do not need Windows Media Center.  Also, cetonproxy does not use BDA drivers which were removed from Windows 10 a while back, so it will work on the latest version of Windows 10.
+1. If you have an ethernet Ceton device, you do not need any drivers installed.  But if you have a PCI or USB device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).  In either case, you do not need Windows Media Center.  Also, cetonproxy does not use BDA drivers which were removed from Windows 10 a while back, so there is no need to use an old version of Windows 10.
 2. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
 3. Extract the contents of the zip file to a new folder of your choice.
 4. Run cetonproxy.exe.
@@ -19,17 +19,15 @@ An app that allows a Ceton InfiniTV PCI/USB/ethernet tuner to appear as a Silico
 9. It should now be discoverable as an HDHomeRun device in your DVR software.  
 
 # Testing
-In a web browser, connect to `http://<Listen IP as HDHomeRun setting>:5004/lineup.xml` to make sure it responds with the set of channels you configured above.  If you did not set a listen IP, then use the IP given to your computer that is running cetonproxy.
+In a web browser, connect to `http://<IP of PC running cetonproxy>:5004/lineup.xml` to make sure it responds with the set of channels you configured above.  
 
-The easiest way to check if video is working is to use [VLC](https://www.videolan.org/index.html).  Open a network stream and type in the url `http://<Listen IP as HDHomeRun setting>:5004/auto/v<channel number>`.
+The easiest way to check if video is working is to use [VLC](https://www.videolan.org/index.html).  Open a network stream and type in the url `http://<IP of PC running cetonproxy>:5004/auto/v<channel number>`.
 
-Log files are created in the app's configuration folder and can be useful if you're experiencing problems.  Click the `View Config Folder` button within the `Statistics` section to see them.
+Log files are created in the app's configuration folder and can be useful if you're experiencing problems.  Click the `Show Config Folder` button within the `Statistics` section to see them.
 
 # Broken
 - I do not have a way to test ClearQAM channels, DVB tuning, or many other scenarios that the InfiniTV supports, so they likely won't work "out of the box".  I am in USA on Comcast, so I can't say it will work on anything else.
 - If there is interest in a Linux/Android/OSX version, let me know, and I can try to put time into it.
-
-I will try to get something working if you're willing to help me work through it.  Submit an issue, and I'll get back to you.  Thanks!
 
 # FAQ
 
