@@ -374,6 +374,7 @@ type
 
     function ConverterRead(const aBuf: PByte; const aSize: Integer): Integer;
     function ConverterWrite(const aBuf: PByte; const aSize: Integer): Integer;
+    procedure ConverterLog(const aMsg: String);
   public
     constructor Create(const aClient: TCetonClient; const aTuner: Integer; const aChannel: Integer; const aRemux: Boolean = True); reintroduce;
     destructor Destroy; override;
@@ -1624,6 +1625,7 @@ begin
         fConverter := TVideoConverter.Create;
         fConverter.OnRead := ConverterRead;
         fConverter.OnWrite := ConverterWrite;
+        fConverter.OnLog := ConverterLog;
         fConverter.ProgramFilter := lChannel.ItemProgram;
       end;
     finally
@@ -1672,6 +1674,11 @@ end;
 function TCetonVideoStream.Seek(const Offset: Int64; Origin: TSeekOrigin): Int64;
 begin
   Result := -1;
+end;
+
+procedure TCetonVideoStream.ConverterLog(const aMsg: String);
+begin
+  TLogger.LogFmt('Client %d tuner %d video converter: %s', [fViewer.Reader.ReaderIndex, fViewer.TunerIndex, aMsg]);
 end;
 
 { TChannelMapItem }
