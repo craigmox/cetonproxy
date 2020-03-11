@@ -13,6 +13,7 @@ uses
   System.Diagnostics,
   System.Timespan,
   System.Generics.Collections,
+  System.IOUtils,
 
   IdUDPServer,
   IdGlobal,
@@ -132,7 +133,9 @@ type
     procedure Lock;
     procedure Unlock;
 
-    procedure UDPRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle);
+    procedure ReceivePacket(const aData: PByte; const aSize: Integer);
+
+    procedure UDPRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle); virtual;
   protected
     // IRTPVideoSink
     function GetPort: Integer;
@@ -146,6 +149,16 @@ type
     procedure Close;
   public
     constructor Create(const aPacketSize, aPacketCount: Integer; const aStats: IVideoStats);
+    destructor Destroy; override;
+  end;
+
+  TDebugRTPVideoSink = class(TRTPVideoSink)
+  private
+    fFileStream: TFileStream;
+  protected
+    procedure UDPRead(AThread: TIdUDPListenerThread; const AData: TIdBytes; ABinding: TIdSocketHandle); override;
+  public
+    constructor Create(const aFilename: String; const aPacketSize, aPacketCount: Integer; const aStats: IVideoStats); reintroduce;
     destructor Destroy; override;
   end;
 
@@ -428,44 +441,21 @@ begin
   Result := 0;
 end;
 
-procedure TRTPVideoSink.UDPRead(AThread: TIdUDPListenerThread;
-  const AData: TIdBytes; ABinding: TIdSocketHandle);
+procedure TRTPVideoSink.ReceivePacket(const aData: PByte; const aSize: Integer);
 var
-  lPacket: PVideoPacket;
-  lWritten, lToWrite: Integer;
-  lHeader: PRTPHeader;
   i: Integer;
+  lPacket: PVideoPacket;
   lOpenPacketCount: Integer;
 begin
-  if Length(AData) < 12 then
-    Exit;
-
-  lHeader := @AData[0];
-
   Lock;
   try
-    if fLastHeader.Version > 0 then
-    begin
-      if lHeader.SequenceNumber <> fLastHeader.SequenceNumber+1 then
-        if Assigned(fStats) then
-          fStats.PacketOutOfOrder(lHeader.SequenceNumber - fLastHeader.SequenceNumber);
-      if lHeader.PayloadType <> fLastHeader.PayloadType then
-        if Assigned(fStats) then
-          fStats.PayloadTypeChange(lHeader.PayloadType);
-    end;
-    fLastHeader := lHeader^;
-
-    lWritten := 12; // Skip RTP header
-    lToWrite := Length(AData)-lWritten;
-
-
     lPacket := @fPackets[fWritePacketIndex];
 
-    if Length(lPacket.Data) < lToWrite then
-      SetLength(lPacket.Data, lToWrite);
+    if Length(lPacket.Data) < aSize then
+      SetLength(lPacket.Data, aSize);
 
-    Move(AData[lWritten], lPacket.Data[0], lToWrite);
-    lPacket.Size := lToWrite;
+    Move(AData^, lPacket.Data[0], aSize);
+    lPacket.Size := aSize;
 
     if Assigned(fStats) then
       fStats.PacketReceived(fWritePacketIndex, lPacket^);
@@ -504,6 +494,36 @@ begin
   finally
     Unlock;
   end;
+end;
+
+procedure TRTPVideoSink.UDPRead(AThread: TIdUDPListenerThread;
+  const AData: TIdBytes; ABinding: TIdSocketHandle);
+var
+  lHeader: PRTPHeader;
+begin
+  if Length(AData) < 12 then
+    Exit;
+
+  lHeader := @AData[0];
+
+  Lock;
+  try
+    if fLastHeader.Version > 0 then
+    begin
+      if lHeader.SequenceNumber <> fLastHeader.SequenceNumber+1 then
+        if Assigned(fStats) then
+          fStats.PacketOutOfOrder(lHeader.SequenceNumber - fLastHeader.SequenceNumber);
+      if lHeader.PayloadType <> fLastHeader.PayloadType then
+        if Assigned(fStats) then
+          fStats.PayloadTypeChange(lHeader.PayloadType);
+    end;
+    fLastHeader := lHeader^;
+  finally
+    Unlock;
+  end;
+
+  // Skip RTP header
+  ReceivePacket(@AData[12], Length(Adata)-12);
 end;
 
 procedure TRTPVideoSink.Lock;
@@ -898,6 +918,34 @@ begin
       Inc(lCount);
     end;
   SetLength(Result, lCount);
+end;
+
+{ TDebugRTPVideoSink }
+
+procedure TDebugRTPVideoSink.UDPRead(AThread: TIdUDPListenerThread;
+  const AData: TIdBytes; ABinding: TIdSocketHandle);
+var
+  lBuffer: array[0..2048] of Byte;
+  lSize: Integer;
+begin
+  // Read from file instead
+  lSize := fFileStream.Read(lBuffer, Length(AData));
+  if lSize > 0 then
+    ReceivePacket(@lBuffer[0], lSize);
+end;
+
+constructor TDebugRTPVideoSink.Create(const aFilename: String; const aPacketSize, aPacketCount: Integer; const aStats: IVideoStats);
+begin
+  fFileStream := TFile.OpenRead(aFilename);
+
+  inherited Create(aPacketSize, aPacketCount, aStats);
+end;
+
+destructor TDebugRTPVideoSink.Destroy;
+begin
+  fFileStream.Free;
+
+  inherited;
 end;
 
 end.

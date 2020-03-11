@@ -278,13 +278,16 @@ begin
         fPacket.pos := -1;
     //    log_packet(ofmt_ctx, @pkt, 'out');
 
-  //      lRet := av_interleaved_write_frame(fOutputFormatContext, @fPacket);
+//        lRet := av_interleaved_write_frame(fOutputFormatContext, @fPacket);
         lRet := av_write_frame(fOutputFormatContext, @fPacket);
         if lRet < 0 then
           ErrorFmt('Error muxing packet: %s', [GetErrorStr(lRet)]);
       end
       else
+      begin
         LogFmt('Dropped packet with non-increasing timestamp on %s stream %d', [AnsiString(av_get_media_type_string(lInStream.codecpar.codec_type)), fPacket.stream_index]);
+        Continue;
+      end;
     finally
       av_packet_unref(@fPacket);
     end;
@@ -311,7 +314,7 @@ procedure TVideoConverter.LogFmt(const aMsg: String;
   const aArgs: array of const);
 begin
   if Assigned(fOnLog) then
-    fOnLog(Format(aMsg, aArgs));
+    fOnLog(Format(Trim(aMsg), aArgs));
 end;
 
 initialization

@@ -7,6 +7,7 @@ uses
   System.Classes,
   System.Diagnostics,
   System.Generics.Collections,
+  System.DateUtils,
   Winapi.ActiveX,
   FMX.Types,
   FMX.Dialogs,
@@ -39,6 +40,8 @@ uses
 const
   SSDP_MULTICAST_GROUP = '239.255.255.250';
   SSDP_PORT = 1900;
+
+  cSSDPAliveIntervalSec = 1800;
 
 type
   TIdCOMThread = class(TIdThreadWithTask)
@@ -75,6 +78,7 @@ type
     procedure ServerException(AContext: TIdContext; AException: Exception);
 
     function CreateSSDPDiscoverPacket: String;
+    function TryCreateSSDPResponsePacket(const aRequestHost: String; out aPacket: String): Boolean;
     function TryCreateSSDPAlivePacket(const aRequestHost: String; out aPacket: String): Boolean;
 
     procedure DiscoverCetonDevices;
@@ -86,7 +90,7 @@ type
   protected
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
-    procedure Log(const aMessage: String);
+    procedure Log(const aLogName: String; const aMessage: String);
     procedure DiscoveredCetonDevicesChanged;
   public
     { Public declarations }
@@ -209,7 +213,7 @@ begin
       end;
       fServer.Active := True;
     except
-      TLogger.Log('Unable to bind HTTP server listening port');
+      TLogger.Log(cLogDefault, 'Unable to bind HTTP server listening port');
     end;
 
     try
@@ -236,7 +240,7 @@ begin
       end;
       fDiscoveryServer.Active := True;
     except
-      TLogger.Log('Unable to bind discovery listening port');
+      TLogger.Log(cLogDefault, 'Unable to bind discovery listening port');
     end;
 
 {    try
@@ -248,7 +252,7 @@ begin
       end;
       fControlServer.Active := True;
     except
-      TLogger.Log('Unable to bind control listening port');
+      TLogger.Log(cLogDefault, 'Unable to bind control listening port');
     end;}
 
     try
@@ -277,7 +281,7 @@ begin
       fSSDPClient.ReuseSocket := rsTrue;
       fSSDPClient.Active := True;
     except
-      TLogger.Log('Unable to bind SSDP listening port');
+      TLogger.Log(cLogDefault, 'Unable to bind SSDP listening port');
     end;
 
     try
@@ -290,7 +294,7 @@ begin
         end;
       fSSDPServer.Active := True;
     except
-      TLogger.Log('Unable to create SSDP server');
+      TLogger.Log(cLogDefault, 'Unable to create SSDP server');
     end;
 
     // Send broadcast for UPnP devices
@@ -358,7 +362,7 @@ begin
   begin
     SetLength(lHex, Length(AData)*2);
     BinToHex(AData, PAnsiChar(lHex), Length(AData));
-    TLogger.LogFmt('Received control data from %s on %s: %s', [ABinding.PeerIP, ABinding.IP, lHex]);
+    TLogger.LogFmt(cLogDiscovery,'Received control data from %s on %s: %s', [ABinding.PeerIP, ABinding.IP, lHex]);
 
     if TPacket.TryFromBytes(TBytes(AData), lPacket) then
     begin
@@ -367,7 +371,7 @@ begin
         case lPacket._Type of
           HDHOMERUN_TYPE_DISCOVER_REQ: begin
             lDiscovery := lPacket.ToDiscovery;
-            TLogger.LogFmt('Received discovery request: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
+            TLogger.LogFmt(cLogDiscovery,'Received discovery request: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
 
             ConfigManager.LockConfig(lConfig);
             try
@@ -396,7 +400,7 @@ begin
                 lBytes := TPacket.FromDiscovery(False, lDiscovery).ToBytes;
                 SetLength(lHex, Length(lBytes)*2);
                 BinToHex(lBytes, PAnsiChar(lHex), Length(lBytes));
-                TLogger.LogFmt('Sending discovery response: Device ID: %s, Base URL: %s, %s', [IntToHex(lDiscovery.DeviceID, 8), lDiscovery.BaseURL, lHex]);
+                TLogger.LogFmt(cLogDiscovery,'Sending discovery response: Device ID: %s, Base URL: %s, %s', [IntToHex(lDiscovery.DeviceID, 8), lDiscovery.BaseURL, lHex]);
 
                 AThread.Server.SendBuffer(ABinding.PeerIP, ABinding.PeerPort, TIdBytes(lBytes));
               end;
@@ -404,7 +408,7 @@ begin
           end;
           HDHOMERUN_TYPE_DISCOVER_RPY: begin
             lDiscovery := lPacket.ToDiscovery;
-            TLogger.LogFmt('Received discovery reply: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
+            TLogger.LogFmt(cLogDiscovery,'Received discovery reply: Device type: %d, Device ID: %s', [lDiscovery.DeviceType, IntToHex(lDiscovery.DeviceID, 8)]);
           end;
         end;
       end;
@@ -495,12 +499,12 @@ end;
 
 procedure TProxyServerModule.ControlTCPConnect(aContext: TIdContext);
 begin
-  TLogger.Log('Control connect');
+  TLogger.Log(cLogDefault, 'Control connect');
 end;
 
 procedure TProxyServerModule.ControlTCPExecute(aContext: TIdContext);
 begin
-  TLogger.Log('Control execute');
+  TLogger.Log(cLogDefault, 'Control execute');
 end;
 
 {Description: Ceton InfiniTV MOCUR (00-00-22-00-00-XX-XX-XX)
@@ -575,7 +579,9 @@ const
   cSSDPDiscover =
     'M-SEARCH * HTTP/1.1'#13#10+
     'Host: 239.255.255.250:1900'#13#10+
-    'ST: '+{'ssdp:all'}'urn:schemas-cetoncorp-com:device:SecureContainer:1'#13#10+
+//    'ST: ssdp:all'#13#10+
+    'ST: urn:schemas-cetoncorp-com:device:SecureContainer:1'#13#10+
+//    'ST: upnp:rootdevice'#13#10+
     'Man: "ssdp:discover"'#13#10+
     'MX: 3'#13#10#13#10;
 begin
@@ -600,9 +606,9 @@ begin
     begin
       if String(lData).Contains('ST: upnp:rootdevice') then
       begin
-        TLogger.LogFmt('Received M-SEARCH for rootdevice from %s on %s', [ABinding.PeerIP, ABinding.IP]);
+        TLogger.LogFmt(cLogDiscovery, 'Received M-SEARCH for rootdevice from %s on %s', [ABinding.PeerIP, ABinding.IP]);
 
-        if TryCreateSSDPAlivePacket(ABinding.IP, lPacket) then
+        if TryCreateSSDPResponsePacket(ABinding.IP, lPacket) then
           fDiscoveryServer.Send(ABinding.PeerIP, ABinding.PeerPort, lPacket);
       end;
     end
@@ -610,7 +616,7 @@ begin
     begin
       if String(lData).ToLower.Contains('cetoncorp') then
       begin
-        TLogger.LogFmt('Received NOTIFY from ceton device %s on %s: %s', [ABinding.PeerIP, ABinding.IP, String(lData)]);
+        TLogger.LogFmt(cLogDiscovery, 'Received NOTIFY from ceton device %s on %s: %s', [ABinding.PeerIP, ABinding.IP, String(lData)]);
 
         lValues := TStringList.Create;
         try
@@ -672,7 +678,7 @@ begin
     Result := False;
 end;
 
-procedure TProxyServerModule.Log(const aMessage: String);
+procedure TProxyServerModule.Log(const aLogName: String; const aMessage: String);
 begin
   // Nothing
 end;
@@ -711,7 +717,7 @@ begin
     SetLength(lData, Length(AData));
     Move(AData[0], lData[Low(lData)], Length(AData));
 
-    TLogger.LogFmt('Received SSDP discovery response from %s on %s: %s', [ABinding.PeerIP, ABinding.IP, String(lData)]);
+    TLogger.LogFmt(cLogDiscovery, 'Received SSDP discovery response from %s on %s: %s', [ABinding.PeerIP, ABinding.IP, String(lData)]);
 
     lValues := TStringList.Create;
     try
@@ -734,6 +740,71 @@ end;
 procedure TProxyServerModule.DiscoveredCetonDevicesChanged;
 begin
   // Nothing
+end;
+
+function DateTimeToRFC1123(aDate: TDateTime): string;
+const
+  StrWeekDay: string = 'MonTueWedThuFriSatSun';
+  StrMonth: string = 'JanFebMarAprMayJunJulAugSepOctNovDec';
+var
+  Year, Month, Day: Word;
+  Hour, Min, Sec, MSec: Word;
+  DayOfWeek: Word;
+begin
+  DecodeDate(aDate, Year, Month, Day);
+  DecodeTime(aDate, Hour, Min, Sec, MSec);
+  DayOfWeek := ((Trunc(aDate) - 2) mod 7);
+  Result    := Copy(StrWeekDay, 1 + DayOfWeek * 3, 3) + ', ' +
+    Format('%2.2d %s %4.4d %2.2d:%2.2d:%2.2d',
+    [Day, Copy(StrMonth, 1 + 3 * (Month - 1), 3),
+    Year, Hour, Min, Sec]);
+end;
+
+{
+HTTP/1.1 200 OK
+Server: HDHomeRun/1.0 UPnP/1.0
+ST: upnp:rootdevice
+Location: http://192.168.1.43:80/dri/device.xml
+Cache-Control: max-age=1800
+USN: uuid:473366D2-A765-3D61-B466-E73B254C632B::upnp:rootdevice
+Ext:
+Content-Length: 0
+Date: Wed, 11 Mar 2020 21:34:52 GMT
+}
+
+function TProxyServerModule.TryCreateSSDPResponsePacket(
+  const aRequestHost: String; out aPacket: String): Boolean;
+const
+  cSSDPResponse =
+    'Server: HDHomeRun/1.0 UPnP/1.0'#13#10+
+    'ST: upnp:rootdevice'#13#10+
+    'Location: http://%s:%d/device.xml'#13#10+
+    'Cache-Control: max-age=%d'#13#10+
+    'USN: uuid:%s::upnp:rootdevice'#13#10+
+    'Ext:'#13#10+
+    'Content-Length: 0'#13#10+
+    'Date: %s'#13#10#13#10;
+var
+  lAddress: String;
+  lPort: Integer;
+  lDeviceUUID: String;
+  lConfig: TServiceConfig;
+begin
+  if TryGetAddress(ARequestHost, lAddress) then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lPort := lConfig.ExternalHTTPPort;
+      lDeviceUUID := lConfig.DeviceUUID;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    aPacket := Format(cSSDPResponse, [lAddress, lPort, cSSDPAliveIntervalSec+30, lDeviceUUID, DateTimeToRFC1123(TTimeZone.Local.ToUniversalTime(Now))+' GMT']);
+    Result := True;
+  end
+  else
+    Result := False;
 end;
 
 end.

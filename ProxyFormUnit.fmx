@@ -2,7 +2,7 @@ object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Ceton HDHomeRun Proxy'
-  ClientHeight = 507
+  ClientHeight = 492
   ClientWidth = 400
   Fill.Kind = Solid
   Position = ScreenCenter
@@ -12,20 +12,21 @@ object MainForm: TMainForm
   FormFactor.Devices = [Desktop, iPhone, iPad]
   OnCreate = FormCreate
   OnDestroy = FormDestroy
+  OnMouseWheel = FormMouseWheel
   OnShow = FormShow
   DesignerMasterStyle = 0
   object VertScrollBox1: TVertScrollBox
     Align = Client
     Size.Width = 400.000000000000000000
-    Size.Height = 507.000000000000000000
+    Size.Height = 492.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
     Viewport.Width = 400.000000000000000000
-    Viewport.Height = 507.000000000000000000
+    Viewport.Height = 492.000000000000000000
     object OuterPanelContainer: TLayout
       Align = Top
       Size.Width = 400.000000000000000000
-      Size.Height = 505.000000000000000000
+      Size.Height = 489.000000000000000000
       Size.PlatformDefault = False
       TabOrder = 0
       object PanelContainer: TLayout
@@ -302,7 +303,7 @@ object MainForm: TMainForm
           object Layout1: TLayout
             Align = Bottom
             Position.Y = 166.000000000000000000
-            Size.Width = 200.000000000000000000
+            Size.Width = 394.000000000000000000
             Size.Height = 34.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 0
@@ -318,7 +319,7 @@ object MainForm: TMainForm
             end
             object btnRefreshChannels: TButton
               Anchors = [akTop, akRight]
-              Position.X = 69.000000000000000000
+              Position.X = 263.000000000000000000
               Position.Y = 4.000000000000000000
               Size.Width = 121.000000000000000000
               Size.Height = 22.000000000000000000
@@ -342,7 +343,7 @@ object MainForm: TMainForm
             Margins.Left = 10.000000000000000000
             Margins.Top = 9.000000000000000000
             Margins.Right = 10.000000000000000000
-            Size.Width = 180.000000000000000000
+            Size.Width = 374.000000000000000000
             Size.Height = 157.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 1
@@ -352,7 +353,7 @@ object MainForm: TMainForm
             DefaultItemStyles.GroupFooterStyle = ''
             ShowCheckboxes = True
             OnChangeCheck = lbChannelsChangeCheck
-            Viewport.Width = 176.000000000000000000
+            Viewport.Width = 370.000000000000000000
             Viewport.Height = 153.000000000000000000
           end
         end
@@ -375,55 +376,6 @@ object MainForm: TMainForm
           Size.Width = 400.000000000000000000
           Size.Height = 6.000000000000000000
           Size.PlatformDefault = False
-        end
-        object pnlDebug: TExpander
-          Align = Top
-          IsExpanded = False
-          Margins.Left = 3.000000000000000000
-          Margins.Right = 3.000000000000000000
-          Margins.Bottom = 3.000000000000000000
-          Position.X = 3.000000000000000000
-          Position.Y = 480.000000000000000000
-          ShowCheck = False
-          Size.Width = 394.000000000000000000
-          Size.Height = 20.000000000000000000
-          Size.PlatformDefault = False
-          Text = 'Debug'
-          TabOrder = 6
-          OnMouseDown = PanelMouseDown
-          OnResized = PanelResizing
-          ContentSize = '41'
-          object btnGetVideoSample: TButton
-            Position.X = 176.000000000000000000
-            Position.Y = 11.000000000000000000
-            Size.Width = 121.000000000000000000
-            Size.Height = 22.000000000000000000
-            Size.PlatformDefault = False
-            TabOrder = 0
-            Text = 'Get Video Sample'
-            OnClick = btnGetVideoSampleClick
-          end
-          object seChannel: TSpinBox
-            Touch.InteractiveGestures = [LongTap, DoubleTap]
-            TabOrder = 2
-            Cursor = crIBeam
-            Max = 10000.000000000000000000
-            RepeatClick = True
-            Position.X = 77.000000000000000000
-            Position.Y = 11.000000000000000000
-            Size.Width = 89.000000000000000000
-            Size.Height = 22.000000000000000000
-            Size.PlatformDefault = False
-          end
-          object Label8: TLabel
-            Position.X = 24.000000000000000000
-            Position.Y = 14.000000000000000000
-            Size.Width = 89.000000000000000000
-            Size.Height = 17.000000000000000000
-            Size.PlatformDefault = False
-            Text = 'Channel:'
-            TabOrder = 1
-          end
         end
       end
     end

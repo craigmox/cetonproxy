@@ -47,6 +47,11 @@ object ProxyWebModule: TProxyWebModule
       Name = 'SpeedTestAction'
       PathInfo = '/speedtest'
       OnAction = ProxyWebModuleSpeedTestActionAction
+    end
+    item
+      Name = 'VideoTestAction'
+      PathInfo = '/videotest/v*'
+      OnAction = ProxyWebModuleVideoTestActionAction
     end>
   Height = 333
   Width = 414

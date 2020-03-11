@@ -36,6 +36,7 @@ uses
   FMX.ListView,
   FMX.SpinBox, 
   FMX.Menus,
+  FMX.Platform,
   REST.json,
   REST.Client,
 
@@ -92,10 +93,6 @@ type
     Splitter1: TSplitter;
     Splitter2: TSplitter;
     OuterPanelContainer: TLayout;
-    pnlDebug: TExpander;
-    btnGetVideoSample: TButton;
-    seChannel: TSpinBox;
-    Label8: TLabel;
     HelpCallout: TCalloutRectangle;
     lblHelp: TLabel;
     eCetonTunerAddress: TComboEdit;
@@ -110,7 +107,6 @@ type
     procedure btnRefreshChannelsClick(Sender: TObject);
     procedure eHDHRListenHTTPPortChangeTracking(Sender: TObject);
     procedure ceHDHRListenIPChangeTracking(Sender: TObject);
-    procedure btnGetVideoSampleClick(Sender: TObject);
     procedure btnShowConfigFolderClick(Sender: TObject);
     procedure PanelResizing(Sender: TObject);
     procedure eHDHRExternalAddressChangeTracking(Sender: TObject);
@@ -119,6 +115,8 @@ type
     procedure EditMouseLeave(Sender: TObject);
     procedure PanelMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Single);
+    procedure FormMouseWheel(Sender: TObject; Shift: TShiftState;
+      WheelDelta: Integer; var Handled: Boolean);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -151,7 +149,7 @@ type
   protected
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
-    procedure Log(const aMessage: String);
+    procedure Log(const aLogName: String; const aMessage: String);
     procedure DiscoveredCetonDevicesChanged;
   public
     { Public declarations }
@@ -644,50 +642,7 @@ begin
   end;
 end;
 
-procedure TMainForm.btnGetVideoSampleClick(Sender: TObject);
-var
-  lStream: TCetonVideoStream;
-  lStopWatch: TStopWatch;
-  lBuffer: array[0..8191] of Byte;
-  lSize: Integer;
-  lFS: TFileStream;
-  lChannel: TChannelMapItem;
-  lFilename: String;
-begin
-  lFilename := 'Sample.ts';
-
-  lChannel := TChannelMapItem.Create;
-  try
-    if Client.TryGetChannel(Round(seChannel.Value), lChannel) then
-    begin
-      lFilename := Format('SampleCh%dP%d.ts', [lChannel.Channel, lChannel.ItemProgram]);
-    end;
-  finally
-    lChannel.Free;
-  end;
-
-  lFS := TFile.Create(ExtractFilePath(ParamStr(0))+lFilename);
-  try
-    lStream := TCetonVideoStream.Create(Client, -1, Round(seChannel.Value), False);
-    try
-      lStopWatch := TStopWatch.StartNew;
-      while lStopWatch.ElapsedMilliseconds <= 6000 do
-      begin
-        lSize := lStream.Read(lBuffer, SizeOf(lBuffer));
-        if lSize = 0 then
-          Break;
-
-        lFS.WriteBuffer(lBuffer, lSize);
-      end;
-    finally
-      lStream.Free;
-    end;
-  finally
-    lFS.Free;
-  end;
-end;
-
-procedure TMainForm.Log(const aMessage: String);
+procedure TMainForm.Log(const aLogName: String; const aMessage: String);
 begin
   // TODO
 end;
@@ -700,7 +655,7 @@ end;
 procedure TMainForm.PanelResizing(Sender: TObject);
 begin
   // Always keep the outer panel container at content size so the scrolling matches the content
-  OuterPanelContainer.Height := pnlDebug.Position.Y + pnlDebug.Height + pnlDebug.Margins.Bottom;
+  OuterPanelContainer.Height := Splitter2.Position.Y + Splitter2.Height;
   // But make the panel container much larger so that splitters have lots of room to work with
   PanelContainer.Height := OuterPanelContainer.Height + 1000;
 end;
@@ -791,6 +746,23 @@ begin
     begin
       UpdateDiscoveredCetonDevices(eCetonTunerAddress);
     end);
+end;
+
+type
+  TCustomScrollBox_Access = class(TCustomScrollBox);
+
+procedure TMainForm.FormMouseWheel(Sender: TObject; Shift: TShiftState;
+  WheelDelta: Integer; var Handled: Boolean);
+var
+  lControl: IControl;
+begin
+  lControl := ObjectAtPoint(Screen.MousePos);
+  if Assigned(lControl) and (not (lControl.GetObject is TListBox)) then
+  begin
+    // Force all mouse wheel handling to go to scrollbox.  There's probably a better way to do this.
+    TCustomScrollBox_Access(VertScrollBox1).MouseWheel(Shift, WheelDelta, Handled);
+    Handled := True;
+  end;
 end;
 
 end.

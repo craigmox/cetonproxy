@@ -26,11 +26,13 @@ uses
   SocketUtils;
 
 type
+  TChunkedStreamPacketCallback = reference to procedure(const aPacketSize: Integer; var aContinue: Boolean);
+
   TIdHTTPAppChunkedResponse = class(TIdHTTPAppResponse)
   private
   public
     procedure SendChunkedHeader;
-    procedure SendChunkedStream(const aStream: TStream; const aLogSpeed: Boolean = False);
+    procedure SendChunkedStream(const aStream: TStream; const aPacketCallback: TChunkedStreamPacketCallback = nil);
 
     function Connected: Boolean;
   end;
@@ -55,6 +57,8 @@ type
       Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
     procedure ProxyWebModuleSpeedTestActionAction(Sender: TObject;
       Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
+    procedure ProxyWebModuleVideoTestActionAction(Sender: TObject;
+      Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -65,7 +69,7 @@ type
     function GetAddress(const aRequest: TWebRequest): String;
 
     procedure GetLineup(const aLineup: TLineup);
-    procedure SendTuneResponse(const aTuner, aChannel: Integer; const Response: TWebResponse);
+    procedure SendTuneResponse(const aTuner, aChannel: Integer; const aTest: Boolean; const aDurationSec: Integer; const aRemux: Boolean; const Response: TWebResponse);
 
     function CreateDeviceXML: String;
 
@@ -94,41 +98,29 @@ begin
   FSent := True;
 end;
 
-procedure TIdHTTPAppChunkedResponse.SendChunkedStream(const aStream: TStream; const aLogSpeed: Boolean = False);
+procedure TIdHTTPAppChunkedResponse.SendChunkedStream(const aStream: TStream; const aPacketCallback: TChunkedStreamPacketCallback = nil);
 var
   lBuffer: TBytes;
   lSize: Integer;
-  lDataMeter: TDataMeter;
-  lStopWatch: TStopWatch;
+  lContinue: Boolean;
 begin
   FThread.Binding.UseNagle := False;
 
-  if aLogSpeed then
-  begin
-    lDataMeter := Default(TDataMeter);
-    lStopWatch := TStopwatch.StartNew;
-  end;
+  lContinue := True;
 
   SetLength(lBuffer, 8192);
   repeat
     lSize := aStream.Read(lBuffer, Length(lBuffer));
     if lSize > 0 then
     begin
-      if aLogSpeed then
-        lDataMeter.Add(lSize);
-
       FThread.Connection.IOHandler.WriteLn(IntToHex(lSize, 1));
       FThread.Connection.IOHandler.Write(TIdBytes(lBuffer), lSize);
       FThread.Connection.IOHandler.WriteLn;
-    end;
 
-    if aLogSpeed and (lStopWatch.ElapsedMilliseconds >= 1000) then
-    begin
-      TLogger.LogFmt('Send rate: %0.2fmbps', [lDataMeter.GetBytesPerSecond(False)*8/1000000]);
-      lStopWatch.Reset;
-      lStopWatch.Start;
+      if Assigned(aPacketCallback) then
+        aPacketCallback(lSize, lContinue);
     end;
-  until lSize = 0;
+  until (lSize = 0) or (not lContinue);
 
   FThread.Connection.IOHandler.WriteLn('0');
   FThread.Connection.IOHandler.WriteLn;
@@ -144,7 +136,7 @@ end;
 procedure TProxyWebModule.WebModuleDefaultAction(Sender: TObject;
   Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
 begin
-  TLogger.LogFmt('Received unknown request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+  TLogger.LogFmt(cLogDefault, 'Received unknown request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
 
 {  if (Request.InternalPathInfo = '') or (Request.InternalPathInfo = '/')then
     Response.Content := ReverseString.Content
@@ -184,7 +176,7 @@ begin
       lResponse.Free;
     end;
 
-    TLogger.LogFmt('Received discover from %s, Response: %s', [Request.RemoteAddr, Response.Content]);
+    TLogger.LogFmt(cLogDiscovery, 'Received discover from %s, Response: %s', [Request.RemoteAddr, Response.Content]);
   except
     HandleException;
   end;
@@ -197,7 +189,7 @@ var
 begin
   Handled := True;
   try
-    TLogger.LogFmt('Received lineup.json request from %s', [Request.RemoteAddr]);
+    TLogger.LogFmt(cLogDefault, 'Received lineup.json request from %s', [Request.RemoteAddr]);
     try
       lLineup := TLineup.Create;
       try
@@ -209,27 +201,59 @@ begin
         lLineup.Free;
       end;
     finally
-      TLogger.LogFmt('Finished lineup.json request from %s', [Request.RemoteAddr]);
+      TLogger.LogFmt(cLogDefault, 'Finished lineup.json request from %s', [Request.RemoteAddr]);
     end;
   except
     HandleException;
   end;
 end;
 
-procedure TProxyWebModule.SendTuneResponse(const aTuner, aChannel: Integer; const Response: TWebResponse);
+procedure TProxyWebModule.SendTuneResponse(const aTuner, aChannel: Integer; const aTest: Boolean; const aDurationSec: Integer; const aRemux: Boolean; const Response: TWebResponse);
 var
   lStream: TCetonVideoStream;
+  lStatsWatch, lDurationWatch: TStopWatch;
+  lStatsArray: TArray<TTunerStats>;
 begin
   // TODO: Grab content type from video stream
   Response.ContentType := 'video/mpeg';
   TIdHTTPAppChunkedResponse(Response).SendChunkedHeader;
 
   repeat
+    lStatsWatch := TStopWatch.StartNew;
+    lDurationWatch := TStopWatch.StartNew;
+
     // If Create here
-    lStream := TCetonVideoStream.Create(Client, aTuner, aChannel);
+    lStream := TCetonVideoStream.Create(Client, aTuner, aChannel, aRemux);
     try
       try
-        TIdHTTPAppChunkedResponse(Response).SendChunkedStream(lStream);
+        TIdHTTPAppChunkedResponse(Response).SendChunkedStream(lStream,
+          procedure(const aPacketSize: Integer; var aContinue: Boolean)
+          var
+            lTunerStats: PTunerStats;
+            lClientstats: PTunerClientStats;
+          begin
+            if (aTest) and (lStatsWatch.ElapsedMilliseconds >= 1000) then
+            begin
+              lStatsArray := Client.GetTunerStats;
+              lTunerStats := @lStatsArray[lStream.Viewer.TunerIndex];
+              lClientStats := lTunerStats.Clients[lStream.Viewer.Reader.ReaderIndex];
+
+              if Assigned(lClientStats) then
+                TLogger.LogFmt(cLogDefault, 'Sending video to client %d: Tuner %d, Channel %d, Program %d, From tuner %d packets at %0.2fMbps, Buffer free %0.0f%%, To encoder %d packets at %0.2fMbps, To client %d bytes at %0.2fMbps, Lost packets %d', [
+                  lStream.Viewer.TunerIndex, lStream.Viewer.Reader.ReaderIndex, lTunerStats.Channel, lStream.ProgramFilter, lTunerStats.InPackets, lTunerStats.InMeter.GetBytesPerSecond(True)*8/1000000, lTunerStats.BufferFree*100, lClientStats.OutPackets, lClientStats.OutMeter.GetBytesPerSecond(True)*8/1000000, lStream.Stats.OutBytes, lStream.Stats.OutMeter.GetBytesPerSecond(True)*8/1000000, lClientStats.Lost])
+              else
+                TLogger.LogFmt(cLogDefault, 'Sending video to client %d: Tuner %d, Channel %d, Program %d, From tuner %d packets at %0.2fMbps, Buffer free %0.0f%%, To client %d bytes at %0.2fMbps', [
+                  lStream.Viewer.TunerIndex, lStream.Viewer.Reader.ReaderIndex, lTunerStats.Channel, lStream.ProgramFilter, lTunerStats.InPackets, lTunerStats.InMeter.GetBytesPerSecond(True)*8/1000000, lTunerStats.BufferFree*100, lStream.Stats.OutBytes, lStream.Stats.OutMeter.GetBytesPerSecond(True)*8/1000000]);
+
+              lStatsWatch.Reset;
+              lStatsWatch.Start;
+            end;
+
+            if (aDurationSec > 0) and (lDurationWatch.ElapsedMilliseconds >= aDurationSec*1000) then
+              aContinue := False;
+          end);
+
+        Exit;
       except
         on e: ECetonError do
           // Loop around to try to start stream again
@@ -250,7 +274,7 @@ var
 begin
   Handled := True;
   try
-    TLogger.LogFmt('Received tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+    TLogger.LogFmt(cLogDefault, 'Received tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     try
       lParts := Request.PathInfo.Split(['/'], TStringSplitOptions.ExcludeEmpty);
       if (Length(lParts) >= 2) and (lParts[1].StartsWith('v',True)) then
@@ -258,11 +282,11 @@ begin
         lChannel := StrToIntDef(lParts[1].Substring(1),0);
         if lChannel > 0 then
         begin
-          SendTuneResponse(-1, lChannel, Response);
+          SendTuneResponse(-1, lChannel, False, 0, True, Response);
         end;
       end;
     finally
-      TLogger.LogFmt('Finished tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+      TLogger.LogFmt(cLogDefault, 'Finished tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     end;
   except
     HandleException;
@@ -271,7 +295,7 @@ end;
 
 procedure TProxyWebModule.HandleException;
 begin
-  TLogger.LogFmt('Service handler error: %s', [Exception(ExceptObject).Message]);
+  TLogger.LogFmt(cLogDefault, 'Service handler error: %s', [Exception(ExceptObject).Message]);
 
   // Send the response ourselves in an exception handler that eats all exceptions to
   // prevent the default handler from doing it and showing an error message box
@@ -294,7 +318,7 @@ var
 begin
   Handled := True;
   try
-    TLogger.LogFmt('Received lineup.xml request from %s', [Request.RemoteAddr]);
+    TLogger.LogFmt(cLogDefault, 'Received lineup.xml request from %s', [Request.RemoteAddr]);
     try
       lLineup := TLineup.Create;
       try
@@ -306,7 +330,7 @@ begin
         lLineup.Free;
       end;
     finally
-      TLogger.LogFmt('Finished lineup.json request from %s', [Request.RemoteAddr]);
+      TLogger.LogFmt(cLogDefault, 'Finished lineup.json request from %s', [Request.RemoteAddr]);
     end;
   except
     HandleException;
@@ -383,7 +407,7 @@ var
 begin
   Handled := True;
   try
-    TLogger.LogFmt('Received tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+    TLogger.LogFmt(cLogDefault, 'Received tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     try
       lParts := Request.PathInfo.Split(['/'], TStringSplitOptions.ExcludeEmpty);
       if (Length(lParts) >= 2) and (lParts[0].StartsWith('tuner',True)) and (lParts[1].StartsWith('v',True)) then
@@ -392,11 +416,11 @@ begin
         lChannel := StrToIntDef(lParts[1].Substring(1),0);
         if (lTuner > -1) and (lChannel > 0) then
         begin
-          SendTuneResponse(lTuner, lChannel, Response);
+          SendTuneResponse(lTuner, lChannel, False, 0, True, Response);
         end;
       end;
     finally
-      TLogger.LogFmt('Finished tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+      TLogger.LogFmt(cLogDefault, 'Finished tune request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     end;
   except
     HandleException;
@@ -415,12 +439,12 @@ procedure TProxyWebModule.ProxyWebModuleLineupStatusActionAction(
 begin
   Handled := True;
   try
-    TLogger.LogFmt('Received lineup status request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+    TLogger.LogFmt(cLogDefault, 'Received lineup status request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     try
       Response.ContentType := 'application/json';
       Response.Content := '{"ScanInProgress":0,"ScanPossible":1,"Source":"Cable","SourceList":["Cable"]}';
     finally
-      TLogger.LogFmt('Finished lineup status request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+      TLogger.LogFmt(cLogDefault, 'Finished lineup status request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     end;
   except
     HandleException;
@@ -432,12 +456,12 @@ procedure TProxyWebModule.ProxyWebModuleDeviceXMLActionAction(Sender: TObject;
 begin
   Handled := True;
   try
-    TLogger.LogFmt('Received device.xml request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+    TLogger.LogFmt(cLogDefault, 'Received device.xml request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     try
       Response.ContentType := 'application/xml';
       Response.Content := CreateDeviceXML;
     finally
-      TLogger.LogFmt('Finished device.xml request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+      TLogger.LogFmt(cLogDefault, 'Finished device.xml request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     end;
   except
     HandleException;
@@ -829,22 +853,38 @@ procedure TProxyWebModule.ProxyWebModuleSpeedTestActionAction(Sender: TObject;
   Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
 var
   lStream: TRandomStream;
+  lStopWatch: TStopWatch;
+  lMeter: TDataMeter;
 begin
   Handled := True;
   try
-    TLogger.LogFmt('Received speedtest request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+    TLogger.LogFmt(cLogDefault, 'Received speedtest request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     try
       Response.ContentType := 'video/mpeg';
       TIdHTTPAppChunkedResponse(Response).SendChunkedHeader;
 
+      lStopWatch := TStopWatch.StartNew;
+      lMeter := Default(TDataMeter);
+
       lStream := TRandomStream.Create;
       try
-        TIdHTTPAppChunkedResponse(Response).SendChunkedStream(lStream, True);
+        TIdHTTPAppChunkedResponse(Response).SendChunkedStream(lStream,
+          procedure(const aPacketSize: Integer; var aContinue: Boolean)
+          begin
+            lMeter.Add(aPacketSize);
+
+            if (lStopWatch.ElapsedMilliseconds >= 1000) then
+            begin
+              TLogger.LogFmt(cLogDefault, 'Send rate: %0.2fmbps', [lMeter.GetBytesPerSecond(False)*8/1000000]);
+              lStopWatch.Reset;
+              lStopWatch.Start;
+            end;
+          end);
       finally
         lStream.Free;
       end;
     finally
-      TLogger.LogFmt('Finished speedtest request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+      TLogger.LogFmt(cLogDefault, 'Finished speedtest request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
     end;
   except
     HandleException;
@@ -869,6 +909,38 @@ begin
   end;
 
   Result := aRequest.Host;
+end;
+
+procedure TProxyWebModule.ProxyWebModuleVideoTestActionAction(Sender: TObject;
+  Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
+var
+  lParts: TArray<String>;
+  lChannel, lDuration, lTunerIndex: Integer;
+  lRemux: Boolean;
+begin
+  Handled := True;
+  try
+    TLogger.LogFmt(cLogDefault, 'Received test video request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+    try
+      lParts := Request.PathInfo.Split(['/'], TStringSplitOptions.ExcludeEmpty);
+      if (Length(lParts) >= 2) and (lParts[1].StartsWith('v',True)) then
+      begin
+        lChannel := StrToIntDef(lParts[1].Substring(1),0);
+        if lChannel > 0 then
+        begin
+          lTunerIndex := StrToIntDef(Request.QueryFields.Values['tuner'], -1);
+          lDuration := StrToIntDef(Request.QueryFields.Values['duration'], 45);
+          lRemux := Boolean(StrToIntDef(Request.QueryFields.Values['remux'], 0));
+
+          SendTuneResponse(lTunerIndex, lChannel, True, lDuration, lRemux, Response);
+        end;
+      end;
+    finally
+      TLogger.LogFmt(cLogDefault, 'Finished test video request from %s: %s', [Request.RemoteAddr, Request.PathInfo]);
+    end;
+  except
+    HandleException;
+  end;
 end;
 
 initialization

@@ -14,6 +14,7 @@ uses
   System.Generics.Defaults,
   System.SyncObjs,
   System.Diagnostics,
+  System.StrUtils,
   FMX.Types,
 
   Winapi.ActiveX,
@@ -81,7 +82,7 @@ type
     ['{E51631F5-FC88-4FEC-BCF6-9A0F5616CE79}']
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure DiscoveredCetonDevicesChanged;
-    procedure Log(const aMessage: String);
+    procedure Log(const aLogName: String; const aMessage: String);
   end;
 
   IServiceConfigManager = interface
@@ -89,7 +90,7 @@ type
     procedure LockConfig(out aConfig: TServiceConfig);
     procedure UnlockConfig(var aConfig: TServiceConfig);
 
-    procedure Log(const aMessage: String);
+    procedure Log(const aLogName: String; const aMessage: String);
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure DiscoveredCetonDevicesChanged;
 
@@ -109,7 +110,7 @@ type
     procedure LockConfig(out aConfig: TServiceConfig);
     procedure UnlockConfig(var aConfig: TServiceConfig);
 
-    procedure Log(const aMessage: String);
+    procedure Log(const aLogName: String; const aMessage: String);
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure DiscoveredCetonDevicesChanged;
 
@@ -128,9 +129,9 @@ type
     fChangeEvent: TEvent;
     fConfigChanged: Boolean;
     fCetonDeviceDiscovered: Boolean;
-    fLogCache: TStringBuilder;
+    fLogCaches: TArray<TStringBuilder>;
 
-    procedure SaveLog;
+    procedure SaveLogs;
 
     procedure QueryDiscoveredCetonDevices;
   protected
@@ -141,7 +142,7 @@ type
 
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
-    procedure Log(const aMessage: String);
+    procedure Log(const aLogName: String; const aMessage: String);
     procedure DiscoveredCetonDevicesChanged;
   public
     constructor Create(const aServiceModule: TProxyServiceModule);
@@ -165,16 +166,16 @@ type
     procedure LoadConfig;
     procedure SaveConfig;
 
-    procedure MoveLog;
+    procedure MoveLog(const aFilename: String);
   protected
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
-    procedure Log(const aMessage: String);
+    procedure Log(const aLogName: String; const aMessage: String);
     procedure DiscoveredCetonDevicesChanged;
 
     // ILogger
     procedure ILogger.Log = HandleLoggerLog;
-    procedure HandleLoggerLog(const aMessage: String);
+    procedure HandleLoggerLog(const aLogName: String; const aMessage: String);
   public
     { Public declarations }
     property ConfigManager: IServiceConfigManager read fConfigManager;
@@ -385,7 +386,7 @@ begin
   Unlock;
 end;
 
-procedure TServiceConfigManager.Log(const aMessage: String);
+procedure TServiceConfigManager.Log(const aLogName: String; const aMessage: String);
 var
   i: Integer;
 begin
@@ -393,7 +394,7 @@ begin
   try
     for i := 0 to fEventListeners.Count-1 do
     begin
-      fEventListeners[i].Log(aMessage);
+      fEventListeners[i].Log(aLogName, aMessage);
     end;
   finally
     Unlock;
@@ -418,22 +419,27 @@ end;
 { TProxyServiceModule }
 
 procedure TProxyServiceModule.DataModuleCreate(Sender: TObject);
+var
+  i: Integer;
 begin
   fDiscoveredCetonDeviceList := TDiscoveredCetonDeviceList.Create;
 
   fConfigManager := TServiceConfigManager.Create;
 
-  try
-    MoveLog;
-  except
-    //
+  for i := 0 to High(cLogNames) do
+  begin
+    try
+      MoveLog(GetConfigPath+'cetonproxy'+cLogNames[i]+'.log');
+    except
+      //
+    end;
   end;
 
   fThread := TServiceThread.Create(Self);
 
   TLogger.SetLogger(Self);
 
-  TLogger.Log('Starting cetonproxy');
+  TLogger.Log(cLogDefault, 'Starting cetonproxy');
 
   fClient := TCetonClient.Create;
 
@@ -456,7 +462,7 @@ begin
 
   SaveConfig;
 
-  TLogger.Log('Closing cetonproxy');
+  TLogger.Log(cLogDefault, 'Closing cetonproxy');
 end;
 
 function TProxyServiceModule.GetConfigPath: String;
@@ -561,32 +567,33 @@ begin
     end;
   except
     on e: Exception do
-      TLogger.LogFmt('Unable to save config: %s', [e.Message]);
+      TLogger.LogFmt(cLogDefault, 'Unable to save config: %s', [e.Message]);
   end;
 end;
 
-procedure TProxyServiceModule.Log(const aMessage: String);
+procedure TProxyServiceModule.Log(const aLogName: String; const aMessage: String);
 begin
   // Nothing
 end;
 
-procedure TProxyServiceModule.HandleLoggerLog(const aMessage: String);
+procedure TProxyServiceModule.HandleLoggerLog(const aLogName: String; const aMessage: String);
 begin
   // Pass to config manager to allow broadcasting it to multiple recipients
-  ConfigManager.Log(aMessage);
+  ConfigManager.Log(aLogName, aMessage);
 end;
 
-procedure TProxyServiceModule.MoveLog;
+procedure TProxyServiceModule.MoveLog(const aFilename: String);
 var
-  lPath: String;
+  lPath, lFilename: String;
   lBaseFilename, lNewFilename: String;
   i, lIndex: Integer;
   lFiles: TArray<String>;
 begin
-  lPath := GetConfigPath;
-  if TFile.Exists(lPath+'cetonproxy.log') then
+  lPath := IncludeTrailingPathDelimiter(ExtractFilePath(aFilename));
+  lFilename := ExtractFileName(aFilename);
+  if TFile.Exists(aFilename) then
   begin
-    lBaseFilename := lPath + 'cetonproxy' + FormatDateTime('yyyymmddhhhnnss', Now);
+    lBaseFilename := lPath + ChangeFileExt(lFilename, FormatDateTime('yyyymmddhhhnnss', Now));
     lNewFilename := lBaseFilename + '.log';
     lIndex := 1;
     while TFile.Exists(lNewFilename) do
@@ -595,11 +602,11 @@ begin
       Inc(lIndex);
     end;
 
-    TFile.Move(lPath+'cetonproxy.log', lNewFilename);
+    TFile.Move(aFilename, lNewFilename);
   end;
 
   // Check for a maximum number of log files
-  lFiles := TDirectory.GetFiles(lPath, 'cetonproxy*.log', TSearchOption.soTopDirectoryOnly);
+  lFiles := TDirectory.GetFiles(lPath, ChangeFileExt(lFilename,'*.log'), TSearchOption.soTopDirectoryOnly);
   if Length(lFiles) > cMaxLogFiles then
   begin
     TArray.Sort<String>(lFiles, TComparer<String>.Default);
@@ -640,12 +647,16 @@ end;
 { TServiceThread }
 
 constructor TServiceThread.Create(const aServiceModule: TProxyServiceModule);
+var
+  i: Integer;
 begin
   fServiceModule := aServiceModule;
 
   fChangeEvent := TEvent.Create(nil, False, False, '');
 
-  fLogCache := TStringBuilder.Create;
+  SetLength(fLogCaches, Length(cLogNames));
+  for i := 0 to High(cLogNames) do
+    fLogCaches[i] := TStringBuilder.Create;
 
   fServiceModule.ConfigManager.AddListener(Self);
 
@@ -660,6 +671,8 @@ begin
 end;
 
 destructor TServiceThread.Destroy;
+var
+  i: Integer;
 begin
   Terminate;
   fChangeEvent.SetEvent;
@@ -668,7 +681,8 @@ begin
   fServiceModule.ConfigManager.RemoveListener(Self);
 
   fChangeEvent.Free;
-  fLogCache.Free;
+  for i := 0 to High(cLogNames) do
+    fLogCaches[i].Free;
 
   inherited;
 end;
@@ -712,7 +726,7 @@ begin
               end;
             end
             else
-              TLogger.LogFmt('Unable to reach %s at discovered Ceton device with IP %s: Received status code %d (%s)', [lDevice.DescriptionXMLURL, lDevice.IP, lRequest.Response.StatusCode, lRequest.Response.StatusText]);
+              TLogger.LogFmt(cLogDiscovery, 'Unable to reach %s at discovered Ceton device with IP %s: Received status code %d (%s)', [lDevice.DescriptionXMLURL, lDevice.IP, lRequest.Response.StatusCode, lRequest.Response.StatusText]);
           finally
             lRequest.Free;
           end;
@@ -721,7 +735,7 @@ begin
         end;
       except
         on e: Exception do
-          TLogger.LogFmt('Unable to reach %s at discovered Ceton device with IP %s: %s', [lDevice.DescriptionXMLURL, lDevice.IP, e.Message]);
+          TLogger.LogFmt(cLogDiscovery, 'Unable to reach %s at discovered Ceton device with IP %s: %s', [lDevice.DescriptionXMLURL, lDevice.IP, e.Message]);
       end;
     end;
   end;
@@ -742,13 +756,13 @@ begin
         fServiceModule.SaveConfig;
       end;
 
-      SaveLog;
+      SaveLogs;
 
       try
         fServiceModule.Client.CheckTuner;
       except
         on e: Exception do
-          TLogger.Log(e.Message);
+          TLogger.Log(cLogDefault, e.Message);
       end;
 
       if fCetonDeviceDiscovered then
@@ -785,51 +799,60 @@ begin
   Result := -1;
 end;
 
-procedure TServiceThread.Log(const aMessage: String);
+procedure TServiceThread.Log(const aLogName: String; const aMessage: String);
 var
   lMsg: String;
+  lIndex: Integer;
 begin
   lMsg := Format('[%s] %s', [FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now), aMessage]);
 
   FMX.Types.Log.d('%s', [lMsg]);
 
-  TMonitor.Enter(fLogCache);
-  try
-    fLogCache.AppendLine(lMsg);
-  finally
-    TMonitor.Exit(fLogCache);
+  lIndex := IndexText(aLogName, cLogNames);
+  if lIndex > -1 then
+  begin
+    TMonitor.Enter(fLogCaches[lIndex]);
+    try
+      fLogCaches[lIndex].AppendLine(lMsg);
+    finally
+      TMonitor.Exit(fLogCaches[lIndex]);
+    end;
   end;
 end;
 
-procedure TServiceThread.SaveLog;
+procedure TServiceThread.SaveLogs;
 var
   lText: String;
   lPath: String;
+  i: Integer;
 begin
-  TMonitor.Enter(fLogCache);
-  try
-    if fLogCache.Length = 0 then
-      Exit;
+  for i := 0 to High(cLogNames) do
+  begin
+    TMonitor.Enter(fLogCaches[i]);
+    try
+      if fLogCaches[i].Length = 0 then
+        Continue;
 
-    lText := fLogCache.ToString;
-    fLogCache.Length := 0;
-  finally
-    TMonitor.Exit(fLogCache);
-  end;
+      lText := fLogCaches[i].ToString;
+      fLogCaches[i].Length := 0;
+    finally
+      TMonitor.Exit(fLogCaches[i]);
+    end;
 
-  lPath := fServiceModule.GetConfigPath+'cetonproxy.log';
+    lPath := fServiceModule.GetConfigPath+'cetonproxy'+cLogNames[i]+'.log';
 
-  try
-    TFile.AppendAllText(lPath, lText);
-  except
-    // Ignore
-  end;
+    try
+      TFile.AppendAllText(lPath, lText);
+    except
+      // Ignore
+    end;
 
-  try
-    if TFile.GetSize(lPath) >= cLogSizeRollover then
-      fServiceModule.MoveLog;
-  except
-    // Ignore
+    try
+      if TFile.GetSize(lPath) >= cLogSizeRollover then
+        fServiceModule.MoveLog(lPath);
+    except
+      // Ignore
+    end;
   end;
 end;
 
