@@ -347,8 +347,8 @@ begin
     goto the_end;
   end;
 
-  for i := 0 to High(lastdts) do
-    lStreamdts[i] := 0;
+  for i := 0 to High(lstreamdts) do
+    lStreamdts[i] := AV_NOPTS_VALUE;
 
   while True do
   begin
@@ -370,7 +370,7 @@ begin
       out_stream := PPtrIdx(ofmt_ctx.streams, pkt.stream_index);
   //    log_packet(ifmt_ctx, @pkt, 'in');
 
-//      if pkt.dts > lstreamdts[pkt.stream_index] then
+      if (lstreamdts[i] = AV_NOPTS_VALUE) or (pkt.dts > lstreamdts[pkt.stream_index]) then
       begin
         lstreamdts[pkt.stream_index] := pkt.dts;
 //        if pkt.stream_index = 1 then
@@ -394,8 +394,8 @@ begin
             Break;
           end;
       end
-{      else
-        log.d('invalid dts on %d: %d', [pkt.stream_index, pkt.dts])};
+      else
+        log.d('invalid dts on %d: %d', [pkt.stream_index, pkt.dts]);
     end;
 
     av_packet_unref(@pkt);
