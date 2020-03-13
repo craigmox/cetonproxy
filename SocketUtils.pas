@@ -722,21 +722,31 @@ begin
   if lWindowTicks = 0 then
     lWindowTicks := (Length(fSnapshots)+1) * TTimeSpan.TicksPerSecond;
 
+  lIndex := -1;
   lStartTicks := 0;
-  lBytes := 0;
-  lIndex := fSnapshotIndex+1;
-  for i := lIndex to lIndex+Length(fSnapshots) do
+
+  // Find a snapshot with data to set start ticks
+  for i := fSnapshotIndex+1 to fSnapshotIndex+Length(fSnapshots)-1 do
   begin
     lIndex := i mod Length(fSnapshots);
     if fSnapshots[lIndex].Ticks >= lCurrentTicks-lWindowTicks then
     begin
-      if lStartTicks = 0 then
-        lStartTicks := fSnapshots[lIndex].Ticks;
-      Inc(lBytes, fSnapshots[lIndex].Bytes);
+      lStartTicks := fSnapshots[lIndex].Ticks;
+      lIndex := i;
+      Break;
     end;
   end;
-  if lStartTicks > 0 then
-    Result := lBytes / ((lCurrentTicks - lStartTicks) / TTimeSpan.TicksPerSecond)
+
+  if (lIndex > -1) and (lCurrentTicks > lStartTicks) then
+  begin
+    lBytes := 0;
+    for i := lIndex to fSnapshotIndex+Length(fSnapshots) do
+    begin
+      lIndex := i mod Length(fSnapshots);
+      Inc(lBytes, fSnapshots[lIndex].Bytes);
+    end;
+    Result := lBytes / ((lCurrentTicks - lStartTicks) / TTimeSpan.TicksPerSecond);
+  end
   else
     Result := 0;
 end;
