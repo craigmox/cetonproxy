@@ -117,6 +117,7 @@ type
   private
     fStats: IVideoStats;
     fServer: TIdUDPServer;
+    fLargestPacket: Int64;
     fClosed: Boolean;
     fWriteEvent: TEvent;
 
@@ -410,7 +411,7 @@ begin
   fServer.DefaultPort := 0;
   fServer.ThreadedEvent := True;
   fServer.OnUDPRead := UDPRead;
-  fServer.Binding.SetSockOpt(Id_SOL_SOCKET, Id_SO_RCVBUF, 1024*1024);
+  fServer.Binding.SetSockOpt(Id_SOL_SOCKET, Id_SO_RCVBUF, 2*1024*1024);
 
   SetLength(fPackets, aPacketCount);
   for i := 0 to High(fPackets) do
@@ -503,6 +504,15 @@ var
 begin
   if Length(AData) < 12 then
     Exit;
+
+  if AThread.Priority <> tpHigher then
+    AThread.Priority := tpHigher;
+
+  if Length(AData) > fLargestPacket then
+  begin
+    fLargestPacket := Length(AData);
+    TLogger.LogFmt(cLogDefault, 'Largest packet: %d', [fLargestPacket]);
+  end;
 
   lHeader := @AData[0];
 
