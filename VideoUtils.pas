@@ -278,8 +278,8 @@ begin
         fPacket.pos := -1;
     //    log_packet(ofmt_ctx, @pkt, 'out');
 
-//        lRet := av_interleaved_write_frame(fOutputFormatContext, @fPacket);
-        lRet := av_write_frame(fOutputFormatContext, @fPacket);
+        lRet := av_interleaved_write_frame(fOutputFormatContext, @fPacket);
+//        lRet := av_write_frame(fOutputFormatContext, @fPacket);  // Causes audio drop-outs in some cases
         if lRet < 0 then
           ErrorFmt('Error muxing packet: %s', [GetErrorStr(lRet)]);
       end
