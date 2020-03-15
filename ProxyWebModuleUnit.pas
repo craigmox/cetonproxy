@@ -106,6 +106,8 @@ var
 begin
   FThread.Binding.UseNagle := False;
 
+  FThread.Connection.IOHandler.WriteBufferOpen;
+
   lContinue := True;
 
   SetLength(lBuffer, 8192);
@@ -116,6 +118,7 @@ begin
       FThread.Connection.IOHandler.WriteLn(IntToHex(lSize, 1));
       FThread.Connection.IOHandler.Write(TIdBytes(lBuffer), lSize);
       FThread.Connection.IOHandler.WriteLn;
+      FThread.Connection.IOHandler.WriteBufferFlush;
 
       if Assigned(aPacketCallback) then
         aPacketCallback(lSize, lContinue);
@@ -124,6 +127,7 @@ begin
 
   FThread.Connection.IOHandler.WriteLn('0');
   FThread.Connection.IOHandler.WriteLn;
+  FThread.Connection.IOHandler.WriteBufferFlush;
 end;
 
 function TIdHTTPAppChunkedResponse.Connected: Boolean;
