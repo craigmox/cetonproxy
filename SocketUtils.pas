@@ -117,7 +117,7 @@ type
   private
     fStats: IVideoStats;
     fServer: TIdUDPServer;
-    fLargestPacket: Int64;
+    fLastPacketSize: Int64;
     fClosed: Boolean;
     fWriteEvent: TEvent;
 
@@ -508,10 +508,10 @@ begin
   if AThread.Priority <> tpHigher then
     AThread.Priority := tpHigher;
 
-  if Length(AData) > fLargestPacket then
+  if Length(AData) <> fLastPacketSize then
   begin
-    fLargestPacket := Length(AData);
-    TLogger.LogFmt(cLogDefault, 'Largest packet: %d', [fLargestPacket]);
+    fLastPacketSize := Length(AData);
+    TLogger.LogFmt(cLogDefault, 'New packet size: %d', [fLastPacketSize]);
   end;
 
   lHeader := @AData[0];
