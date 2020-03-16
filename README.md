@@ -40,3 +40,9 @@ If you want it to save somewhere else, you can run it with a command line parame
 ## Can it be used with multiple Ceton devices?
 
 Short answer is no, not yet.  The best suggestion I have right now is to run it on several computers, one for each device. 
+
+## Can I buy you a beer or something?
+
+Thanks for the thought!  I'm not doing this for money, but if you've found some use in this app and feel like donating, click the PayPal link below.  I do love beer.  
+
+[![paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=ZM37NT2WKC8TY)
