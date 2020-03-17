@@ -2,7 +2,7 @@ object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Ceton HDHomeRun Proxy'
-  ClientHeight = 494
+  ClientHeight = 483
   ClientWidth = 400
   Fill.Kind = Solid
   Position = ScreenCenter
@@ -18,15 +18,15 @@ object MainForm: TMainForm
   object VertScrollBox1: TVertScrollBox
     Align = Client
     Size.Width = 400.000000000000000000
-    Size.Height = 494.000000000000000000
+    Size.Height = 483.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
     Viewport.Width = 400.000000000000000000
-    Viewport.Height = 494.000000000000000000
+    Viewport.Height = 483.000000000000000000
     object OuterPanelContainer: TLayout
       Align = Top
       Size.Width = 400.000000000000000000
-      Size.Height = 489.000000000000000000
+      Size.Height = 481.000000000000000000
       Size.PlatformDefault = False
       TabOrder = 0
       object PanelContainer: TLayout
@@ -52,7 +52,7 @@ object MainForm: TMainForm
           TabOrder = 0
           OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
-          ContentSize = '200'
+          ContentSize = '156'
           object Label7: TLabel
             Position.X = 15.000000000000000000
             Position.Y = 130.000000000000000000
