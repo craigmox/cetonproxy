@@ -30,10 +30,6 @@ uses
   FMX.Layouts,
   FMX.ListBox,
   FMX.Utils,
-  FMX.ListView.Types,
-  FMX.ListView.Appearances,
-  FMX.ListView.Adapters.Base,
-  FMX.ListView,
   FMX.SpinBox, 
   FMX.Menus,
   FMX.Platform,
@@ -71,7 +67,6 @@ type
     SaveTimer: TTimer;
     Label2: TLabel;
     btnRefreshChannels: TButton;
-    lbStats: TListView;
     Label3: TLabel;
     eHDHRListenHTTPPort: TEdit;
     Label4: TLabel;
@@ -96,6 +91,7 @@ type
     HelpCallout: TCalloutRectangle;
     lblHelp: TLabel;
     eCetonTunerAddress: TComboEdit;
+    lbTuners: TListBox;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
@@ -117,6 +113,7 @@ type
       Shift: TShiftState; X, Y: Single);
     procedure FormMouseWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: Integer; var Handled: Boolean);
+    procedure lbTunersChangeCheck(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -142,7 +139,7 @@ type
     procedure UpdateInterface;
     procedure UpdateChannelCount;
     procedure FillChannels;
-    procedure FillTunerStatistics;
+    procedure FillTuners;
 
     property ConfigManager: IServiceConfigManager read fConfigManager;
     property Client: TCetonClient read GetClient;
@@ -311,7 +308,7 @@ begin
       ConfigManager.UnlockConfig(lConfig);
     end;
 
-    updateChannelCount;
+    UpdateChannelCount;
 
     Save([TServiceConfigSection.Channels]);
   end;
@@ -415,7 +412,7 @@ begin
     ConfigManager.Changed(Self, lSections);
   end;
 
-  FillTunerStatistics;
+  FillTuners;
 end;
 
 procedure TMainForm.FormShow(Sender: TObject);
@@ -485,41 +482,77 @@ begin
   FillChannels;
 end;
 
-procedure TMainForm.FillTunerStatistics;
+procedure TMainForm.FillTuners;
 var
   lStatsArray: TTunerStatsArray;
   i, i2: Integer;
   lActiveStr: String;
   lText: String;
   lCount: Integer;
+  lConfig: TServiceConfig;
+  lTunerConfigList: TTunerConfigList;
 begin
-  lStatsArray := Client.GetTunerStats;
-  while lbStats.Items.Count < Length(lStatsArray) do
-    lbStats.Items.Add;
-  while lbStats.Items.Count > Length(lStatsArray) do
-    lbStats.Items.Delete(lbStats.Items.Count-1);
+  BeginInterfaceUpdate;
+  try
+    lStatsArray := Client.GetTunerStats;
 
-  for i := 0 to High(lStatsArray) do
-  begin
-    if lStatsArray[i].Active then
-      lActiveStr := 'Active'
-    else
-      lActiveStr := 'Not active';
+    lbTuners.BeginUpdate;
+    try
+      while lbTuners.Items.Count < Length(lStatsArray) do
+        lbTuners.Items.Add('');
+      while lbTuners.Items.Count > Length(lStatsArray) do
+        lbTuners.Items.Delete(lbTuners.Items.Count-1);
 
-    lText := Format('%d. Channel: %d, %s  (%0.2fMbps, Buffer free: %0.0f%%)', [i+1, lStatsArray[i].Channel, lActiveStr, lStatsArray[i].InMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].BufferFree*100]);
-    lCount := 1;
+      lTunerConfigList := TTunerConfigList.Create;
+      try
+        ConfigManager.LockConfig(lConfig);
+        try
+          lTunerConfigList.Assign(lConfig.Ceton.Tuners);
+        finally
+          ConfigManager.UnlockConfig(lConfig);
+        end;
 
-    for i2 := 0 to lStatsArray[i].ClientCount-1 do
-    begin
-      if lStatsArray[i].Clients[i2].Active then
-      begin
-        lText := lText + #13#10 + Format('    To client: %0.2fMbps, Lost packets: %d', [lStatsArray[i].Clients[i2].OutMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].Clients[i2].Lost]);
-        Inc(lCount);
+        for i := 0 to High(lStatsArray) do
+        begin
+          if lStatsArray[i].Active then
+            lActiveStr := 'Active'
+          else
+            lActiveStr := 'Not active';
+
+          lText := Format('%d. Channel: %d, %s  (%0.2fMbps, Buffer free: %0.0f%%)', [i+1, lStatsArray[i].Channel, lActiveStr, lStatsArray[i].InMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].BufferFree*100]);
+          lCount := 1;
+
+          for i2 := 0 to lStatsArray[i].ClientCount-1 do
+          begin
+            if lStatsArray[i].Clients[i2].Active then
+            begin
+              lText := lText + #13#10 + Format('    To client: %0.2fMbps, Lost packets: %d', [lStatsArray[i].Clients[i2].OutMeter.GetBytesPerSecond(True)*8/1000000, lStatsArray[i].Clients[i2].Lost]);
+              Inc(lCount);
+            end;
+          end;
+
+          lbTuners.ListItems[i].Text := lText;
+          lbTuners.ListItems[i].Height := 22*lCount;
+
+          if (i < lTunerConfigList.Count) then
+            lbTuners.ListItems[i].IsChecked := lTunerConfigList[i].Enabled
+          else
+            lbTuners.ListItems[i].IsChecked := False;
+
+          lbTuners.ListItems[i].StyledSettings := lbTuners.ListItems[i].StyledSettings - [TStyledSetting.FontColor];
+          if lbTuners.ListItems[i].IsChecked then
+            lbTuners.ListItems[i].FontColor := TAlphaColorRec.Black
+          else
+            lbTuners.ListItems[i].FontColor := TAlphaColorRec.Gray;
+        end;
+      finally
+        lTunerConfigList.Free;
       end;
+    finally
+      lbTuners.EndUpdate;
     end;
-
-    lbStats.Items[i].Text := lText;
-    lbStats.Items[i].Height := 22*lCount;
+  finally
+    EndInterfaceUpdate;
   end;
 end;
 
@@ -762,6 +795,25 @@ begin
     // Force all mouse wheel handling to go to scrollbox.  There's probably a better way to do this.
     TCustomScrollBox_Access(VertScrollBox1).MouseWheel(Shift, WheelDelta, Handled);
     Handled := True;
+  end;
+end;
+
+procedure TMainForm.lbTunersChangeCheck(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      if TListBoxItem(Sender).Index < lConfig.Ceton.Tuners.Count then
+        lConfig.Ceton.Tuners[TListBoxItem(Sender).Index].Enabled := TListBoxItem(Sender).IsChecked;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    // TODO: Use another config section so that servers aren't restarted
+    Save([TServiceConfigSection.Other]);
   end;
 end;
 

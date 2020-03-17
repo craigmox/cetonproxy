@@ -211,6 +211,16 @@ var
 begin
   m := TJSONMarshal.Create(TJSONConverter.Create);
   try
+    m.RegisterConverter(TTunerConfigList, 'fList',
+      function(Data: TObject; Field: String): TListOfObjects
+      var
+        i: Integer;
+      begin
+        SetLength(Result, TTunerConfigList(Data).Count);
+        for i := 0 to High(Result) do
+          Result[i] := TTunerConfigList(Data)[i];
+      end);
+
     m.RegisterConverter(TChannelMap, 'fList',
       function(Data: TObject; Field: String): TListOfObjects
       var
@@ -244,6 +254,21 @@ begin
 
     m := TJSONUnMarshal.Create;
     try
+      lR := TReverterEvent.Create(TTunerConfig, 'list');
+      lR.ObjectsReverter :=
+        procedure(Data: TObject; Field: string; Args: TListOfObjects)
+        var
+          i: Integer;
+        begin
+          TTunerConfigList(Data).Count := Length(Args);
+          for i := 0 to High(Args) do
+          begin
+            TTunerConfigList(Data)[i].Assign(TTunerConfig(Args[i]));
+            Args[i].Free;
+          end;
+        end;
+      m.RegisterReverter(TTunerConfigList, 'list', lR);
+
       lR := TReverterEvent.Create(TChannelMapItem, 'list');
       lR.ObjectsReverter :=
         procedure(Data: TObject; Field: string; Args: TListOfObjects)
@@ -742,6 +767,9 @@ begin
 end;
 
 procedure TServiceThread.Execute;
+var
+  lConfig: TServiceConfig;
+  lCetonConfig: TCetonConfig;
 begin
   Coinitialize(nil);
   try
@@ -759,7 +787,25 @@ begin
       SaveLogs;
 
       try
-        fServiceModule.Client.CheckTuner;
+        if fServiceModule.Client.CheckTuner then
+        begin
+          // If check tuner did something, it may have changed its config, so update the service module's config
+          lCetonConfig := TCetonConfig.Create;
+          try
+            fServiceModule.Client.GetConfig(lCetonConfig);
+
+            fServiceModule.ConfigManager.LockConfig(lConfig);
+            try
+              lConfig.Ceton.Assign(lCetonConfig, [TCetonConfigSection.Channels]);
+            finally
+              fServiceModule.ConfigManager.UnlockConfig(lConfig);
+            end;
+          finally
+            lCetonConfig.Free;
+          end;
+
+          fServiceModule.ConfigManager.Changed(fServiceModule.Client, [TServiceConfigSection.Other]);
+        end;
       except
         on e: Exception do
           TLogger.Log(cLogDefault, e.Message);

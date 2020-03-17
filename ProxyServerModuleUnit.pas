@@ -384,7 +384,7 @@ begin
             begin
               if TryGetAddress(ABinding.IP, lAddress) then
               begin
-                lTunerCount := Client.TunerCount;
+                lTunerCount := Client.EnabledTunerCount;
 
                 ConfigManager.LockConfig(lConfig);
                 try
@@ -474,7 +474,7 @@ begin
 
   if (lAddresses.IndexOf(ARequestLocalIP) > -1) then
   begin
-    if ProxyServiceModule.Client.TunerCount = 0 then
+    if ProxyServiceModule.Client.EnabledTunerCount = 0 then
       Exit(False);
 
     lModel := ProxyServiceModule.Client.Model;

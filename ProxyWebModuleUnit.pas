@@ -69,7 +69,7 @@ type
     function GetAddress(const aRequest: TWebRequest): String;
 
     procedure GetLineup(const aLineup: TLineup);
-    procedure SendTuneResponse(const aTuner, aChannel: Integer; const aTest: Boolean; const aDurationSec: Integer; const aRemux: Boolean; const Response: TWebResponse);
+    procedure SendTuneResponse(const aTuner, aChannel: Integer; const aAllowedDisabledTuners: Boolean; const aTest: Boolean; const aDurationSec: Integer; const aRemux: Boolean; const Response: TWebResponse);
 
     function CreateDeviceXML: String;
 
@@ -161,7 +161,7 @@ begin
     lResponse := TDiscoverResponse.Create;
     try
       lAddress := GetAddress(Request);
-      lTunerCount := Client.TunerCount;
+      lTunerCount := Client.EnabledTunerCount;
 
       ConfigManager.LockConfig(lConfig);
       try
@@ -212,7 +212,7 @@ begin
   end;
 end;
 
-procedure TProxyWebModule.SendTuneResponse(const aTuner, aChannel: Integer; const aTest: Boolean; const aDurationSec: Integer; const aRemux: Boolean; const Response: TWebResponse);
+procedure TProxyWebModule.SendTuneResponse(const aTuner, aChannel: Integer; const aAllowedDisabledTuners: Boolean; const aTest: Boolean; const aDurationSec: Integer; const aRemux: Boolean; const Response: TWebResponse);
 var
   lStream: TCetonVideoStream;
   lStatsWatch, lDurationWatch: TStopWatch;
@@ -227,7 +227,7 @@ begin
     lDurationWatch := TStopWatch.StartNew;
 
     // If Create here
-    lStream := TCetonVideoStream.Create(Client, aTuner, aChannel, aRemux);
+    lStream := TCetonVideoStream.Create(Client, aTuner, aChannel, aAllowedDisabledTuners, aRemux);
     try
       try
         TIdHTTPAppChunkedResponse(Response).SendChunkedStream(lStream,
@@ -286,7 +286,7 @@ begin
         lChannel := StrToIntDef(lParts[1].Substring(1),0);
         if lChannel > 0 then
         begin
-          SendTuneResponse(-1, lChannel, False, 0, True, Response);
+          SendTuneResponse(-1, lChannel, False, False, 0, True, Response);
         end;
       end;
     finally
@@ -420,7 +420,7 @@ begin
         lChannel := StrToIntDef(lParts[1].Substring(1),0);
         if (lTuner > -1) and (lChannel > 0) then
         begin
-          SendTuneResponse(lTuner, lChannel, False, 0, True, Response);
+          SendTuneResponse(lTuner, lChannel, False, False, 0, True, Response);
         end;
       end;
     finally
@@ -936,7 +936,7 @@ begin
           lDuration := StrToIntDef(Request.QueryFields.Values['duration'], 45);
           lRemux := Boolean(StrToIntDef(Request.QueryFields.Values['remux'], 0));
 
-          SendTuneResponse(lTunerIndex, lChannel, True, lDuration, lRemux, Response);
+          SendTuneResponse(lTunerIndex, lChannel, True, True, lDuration, lRemux, Response);
         end;
       end;
     finally

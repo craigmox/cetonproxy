@@ -57,6 +57,7 @@ type
   ECetonError = class(Exception);
 
   TChannelMap = class;
+  TTunerConfigList = class;
 
   TCetonConfigSection = (Channels);
   TCetonConfigSections = set of TCetonConfigSection;
@@ -64,9 +65,9 @@ type
   TCetonConfig = class(TPersistent)
   private
     fChannelMap: TChannelMap;
+    fTuners: TTunerConfigList;
     fTunerAddress: String;
     fListenIP: String;
-    fTunerCount: Integer;
   public
     constructor Create;
     destructor Destroy; override;
@@ -78,6 +79,7 @@ type
     property ListenIP: String read fListenIP write fListenIP;
     property TunerAddress: String read fTunerAddress write fTunerAddress;
     property ChannelMap: TChannelMap read fChannelMap;
+    property Tuners: TTunerConfigList read fTuners;
   end;
 
   TChannelMapItem = class(TPersistent)
@@ -110,7 +112,6 @@ type
     [JSONOwned(False)]
     fList: TObjectList<TChannelMapItem>;
     fRequestDateTime: TDateTime;
-    [JSONMarshalled(False)]
     function GetCount: Integer;
     function GetItem(const aIndex: Integer): TChannelMapItem;
     function ChannelMapItemComparison(const Left,
@@ -228,6 +229,34 @@ type
     class function VarContains(const aValue: String): TValidateValueCallback; static;
     class function GetTunerCount(const aClient: TRestClient): Integer; static;
     class function GetModel(const aClient: TRestClient): TCetonModel; static;
+  end;
+
+  TTunerConfig = class(TPersistent)
+  private
+    fEnabled: Boolean;
+  public
+    constructor Create;
+
+    procedure AssignTo(Dest: TPersistent); override;
+
+    property Enabled: Boolean read fEnabled write fEnabled;
+  end;
+
+  TTunerConfigList = class
+  private
+    [JSONOwned(False)]
+    fList: TObjectList<TTunerConfig>;
+    function GetCount: Integer;
+    procedure SetCount(const aValue: Integer);
+    function GetItem(const aIndex: Integer): TTunerConfig;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    procedure Assign(const aList: TTunerConfigList);
+
+    property Count: Integer read GetCount write SetCount;
+    property Items[const aIndex: Integer]: TTunerConfig read GetItem; default;
   end;
 
   PTunerClientStats = ^TTunerClientStats;
@@ -348,7 +377,7 @@ type
     procedure NeedClient;
 
     function GetListenIP: String;
-    function GetTunerCount: Integer;
+    function GetEnabledTunerCount: Integer;
     function GetModel: TCetonModel;
   public
     constructor Create;
@@ -359,17 +388,17 @@ type
 
     function TryGetChannel(const aNumber: Integer; const aChannel: TChannelMapItem): Boolean;
 
-    procedure CheckTuner;
+    function CheckTuner: Boolean;
     procedure RequestChannelMap;
 
-    procedure StartStream(const aTuner: Integer; const aChannel: Integer; out aViewer: TCetonViewer);
+    procedure StartStream(const aTuner: Integer; const aChannel: Integer; const aAllowDisabledTuners: Boolean; out aViewer: TCetonViewer);
     procedure StopStream(var aViewer: TCetonViewer);
     procedure ReadStream(var aViewer: TCetonViewer; const aBuffer: TRingBuffer; const aCount: Integer; const aTimeoutMs: Integer);
 
     function GetTunerStats: TTunerStatsArray;
 
     property ListenIP: String read GetListenIP;
-    property TunerCount: Integer read GetTunerCount;
+    property EnabledTunerCount: Integer read GetEnabledTunerCount;
     property Model: TCetonModel read GetModel;
   end;
 
@@ -393,7 +422,7 @@ type
     function ConverterWrite(const aBuf: PByte; const aSize: Integer): Integer;
     procedure ConverterLog(const aMsg: String);
   public
-    constructor Create(const aClient: TCetonClient; const aTuner: Integer; const aChannel: Integer; const aRemux: Boolean = True); reintroduce;
+    constructor Create(const aClient: TCetonClient; const aTuner: Integer; const aChannel: Integer; const aAllowedDisabledTuners: Boolean; const aRemux: Boolean); reintroduce;
     destructor Destroy; override;
 
     function Read(var Buffer; Count: Longint): Longint; override;
@@ -963,13 +992,6 @@ begin
     if fList[i].Channel = aChannel then
       Exit(i);
   end;
-
-  for i := 0 to fList.Count-1 do
-  begin
-    if not fList[i].Active then
-      Exit(i);
-  end;
-
   Result := -1;
 end;
 
@@ -1007,7 +1029,7 @@ begin
   end;
 end;
 
-procedure TCetonClient.StartStream(const aTuner: Integer; const aChannel: Integer; out aViewer: TCetonViewer);
+procedure TCetonClient.StartStream(const aTuner: Integer; const aChannel: Integer; const aAllowDisabledTuners: Boolean; out aViewer: TCetonViewer);
 var
   lTuner: TTuner;
   lReader: TVideoReader;
@@ -1015,6 +1037,8 @@ var
   lCount: Integer;
   lChannelIndex: Integer;
   lChannel: TChannelMapItem;
+  i: Integer;
+  lTunerIndex: Integer;
 begin
   aViewer := TCetonViewer.Invalid;
   try
@@ -1025,12 +1049,46 @@ begin
       aViewer.TunerIndex := aTuner;
       if aViewer.TunerIndex < 0 then
       begin
+        // Check if a tuner is currently active with the channel to share it
         aViewer.TunerIndex := fTunerList.Find(aChannel);
         if aViewer.TunerIndex = -1 then
-          raise ECetonError.Create('All tuners are busy');
+        begin
+          // Find an available enabled tuner
+          for i := 0 to fTunerList.Count-1 do
+          begin
+            lTuner := fTunerList[i];
+            if (aAllowDisabledTuners) or ((i < fConfig.Tuners.Count) and (fConfig.Tuners[i].Enabled)) then
+            begin
+              aViewer.TunerIndex := i;
+              Break;
+            end;
+          end;
+          if aViewer.TunerIndex = -1 then
+            raise ECetonError.Create('All tuners are busy');
+        end;
+      end
+      else
+      begin
+        // Count only enabled tuners in the tuner indexing
+        aViewer.TunerIndex := -1;
+        lTunerIndex := 0;
+        for i := 0 to fTunerList.Count-1 do
+        begin
+          lTuner := fTunerList[i];
+          if (aAllowDisabledTuners) or ((i < fConfig.Tuners.Count) and (fConfig.Tuners[i].Enabled)) then
+          begin
+            if lTunerIndex = aTuner then
+            begin
+              aViewer.TunerIndex := i;
+              Break;
+            end;
+            Inc(lTunerIndex);
+          end;
+        end;
+
+        if aViewer.TunerIndex = -1 then
+          raise ECetonError.CreateFmt('Invalid tuner: %d', [aTuner]);
       end;
-      if aViewer.TunerIndex >= fTunerList.Count then
-        raise ECetonError.CreateFmt('Invalid tuner: %d', [aViewer.TunerIndex]);
 
       lChannelIndex := fConfig.ChannelMap.IndexOf(aChannel);
       if lChannelIndex = -1 then
@@ -1285,17 +1343,22 @@ begin
     raise ECetonError.Create('Tuner address has not been configured');
 end;
 
-function TCetonClient.GetTunerCount: Integer;
+function TCetonClient.GetEnabledTunerCount: Integer;
+var
+  i: Integer;
 begin
   Lock;
   try
-    Result := fTunerList.Count;
+    Result := 0;
+    for i := 0 to fConfig.Tuners.Count-1 do
+      if fConfig.Tuners[i].Enabled then
+        Inc(Result);
   finally
     Unlock;
   end;
 end;
 
-procedure TCetonClient.CheckTuner;
+function TCetonClient.CheckTuner: Boolean;
 var
   lClient: TRESTClient;
   lTCPClient: TIdTCPClient;
@@ -1306,7 +1369,7 @@ begin
   Lock;
   try
     if Assigned(fClient) then
-      Exit;
+      Exit(False);
 
     lTunerAddress := fConfig.TunerAddress;
   finally
@@ -1322,10 +1385,11 @@ begin
       Lock;
       try
         if Assigned(fClient) then
-          Exit;
+          Exit(False);
 
         fClient := lClient;
         fTunerList.Count := lTunerCount;
+        fConfig.Tuners.Count := Max(fConfig.Tuners.Count, lTunerCount);
         fModel := lModel;
 
         lClient := nil;
@@ -1361,6 +1425,8 @@ begin
   except
     raise ECetonError.CreateFmt('Unable to reach tuner at %s', [lTunerAddress]);
   end;
+
+  Result := True;
 end;
 
 function TCetonClient.GetModel: TCetonModel;
@@ -1640,7 +1706,7 @@ begin
 end;
 
 constructor TCetonVideoStream.Create(const aClient: TCetonClient;
-  const aTuner: Integer; const aChannel: Integer; const aRemux: Boolean);
+  const aTuner: Integer; const aChannel: Integer; const aAllowedDisabledTuners: Boolean; const aRemux: Boolean);
 var
   lChannel: TChannelMapItem;
 begin
@@ -1649,7 +1715,7 @@ begin
   fReadBuffer := TRingBuffer.Create;
   fWriteBuffer := TRingBuffer.Create;
 
-  fClient.StartStream(aTuner, aChannel, fViewer);
+  fClient.StartStream(aTuner, aChannel, aAllowedDisabledTuners, fViewer);
 
   fProgramFilter := -1;
 
@@ -1759,10 +1825,12 @@ end;
 constructor TCetonConfig.Create;
 begin
   fChannelMap := TChannelMap.Create;
+  fTuners := TTunerConfigList.Create;
 end;
 
 destructor TCetonConfig.Destroy;
 begin
+  fTuners.Free;
   fChannelMap.Free;
 
   inherited;
@@ -1783,9 +1851,9 @@ begin
     lDest := TCetonConfig(Dest);
 
     lDest.fChannelMap.Assign(fChannelMap, TCetonConfigSection.Channels in aExcludeSections);
+    lDest.fTuners.Assign(fTuners);
     lDest.fTunerAddress := fTunerAddress;
     lDest.fListenIP := fListenIP;
-    lDest.fTunerCount := fTunerCount;
   end
   else
     inherited AssignTo(Dest);
@@ -1985,6 +2053,64 @@ begin
         aDevice.FriendlyName := lNode.Text;
     end;
   end;
+end;
+
+{ TTunerConfigList }
+
+constructor TTunerConfigList.Create;
+begin
+  fList := TObjectList<TTunerConfig>.Create(True);
+end;
+
+function TTunerConfigList.GetCount: Integer;
+begin
+  Result := fList.Count;
+end;
+
+procedure TTunerConfigList.SetCount(const aValue: Integer);
+begin
+  while fList.Count < aValue do
+    fList.Add(TTunerConfig.Create);
+  while fList.Count > aValue do
+    fList.Delete(fList.Count-1);
+end;
+
+function TTunerConfigList.GetItem(const aIndex: Integer): TTunerConfig;
+begin
+  Result := fList[aIndex];
+end;
+
+destructor TTunerConfigList.Destroy;
+begin
+  fList.Free;
+
+  inherited;
+end;
+
+procedure TTunerConfigList.Assign(const aList: TTunerConfigList);
+var
+  i: Integer;
+begin
+  Count := aList.Count;
+  for i := 0 to Count-1 do
+    Items[i].Assign(aList[i]);
+end;
+
+{ TTunerConfig }
+
+constructor TTunerConfig.Create;
+begin
+  fEnabled := True;
+end;
+
+procedure TTunerConfig.AssignTo(Dest: TPersistent);
+begin
+  if Dest is TTunerConfig then
+  begin
+    TTunerConfig(Dest).fEnabled := fEnabled;
+  end
+  else
+    inherited;
 end;
 
 end.
