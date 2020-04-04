@@ -62,7 +62,8 @@ object MainForm: TMainForm
             Text = 'External HTTP port as HDHomeRun:'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 5
+            TabOrder = 7
+            TabStop = False
           end
           object Label6: TLabel
             Position.X = 15.000000000000000000
@@ -73,7 +74,8 @@ object MainForm: TMainForm
             Text = 'External address as HDHomeRun:'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 6
+            TabOrder = 8
+            TabStop = False
           end
           object Label3: TLabel
             Position.X = 15.000000000000000000
@@ -84,7 +86,8 @@ object MainForm: TMainForm
             Text = 'Listen HTTP port as HDHomeRun:'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 4
+            TabOrder = 6
+            TabStop = False
           end
           object Label4: TLabel
             Position.X = 15.000000000000000000
@@ -95,7 +98,8 @@ object MainForm: TMainForm
             Text = 'Listen IP as HDHomeRun:'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 7
+            TabOrder = 9
+            TabStop = False
           end
           object Label2: TLabel
             Position.X = 15.000000000000000000
@@ -106,7 +110,8 @@ object MainForm: TMainForm
             Text = 'Listen IP for Ceton:'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 3
+            TabOrder = 5
+            TabStop = False
           end
           object ceCetonListenIP: TComboEdit
             Touch.InteractiveGestures = [LongTap, DoubleTap]
@@ -161,7 +166,7 @@ object MainForm: TMainForm
           end
           object eHDHRExternalAddress: TEdit
             Touch.InteractiveGestures = [LongTap, DoubleTap]
-            TabOrder = 9
+            TabOrder = 3
             Position.X = 210.000000000000000000
             Position.Y = 98.000000000000000000
             Hint = 
@@ -177,7 +182,7 @@ object MainForm: TMainForm
           end
           object eHDHRExternalHTTPPort: TEdit
             Touch.InteractiveGestures = [LongTap, DoubleTap]
-            TabOrder = 8
+            TabOrder = 4
             Position.X = 210.000000000000000000
             Position.Y = 125.000000000000000000
             Hint = 
@@ -204,7 +209,7 @@ object MainForm: TMainForm
           Size.Height = 59.000000000000000000
           Size.PlatformDefault = False
           Text = 'Settings'
-          TabOrder = 3
+          TabOrder = 0
           OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
           ContentSize = '39'
@@ -301,7 +306,7 @@ object MainForm: TMainForm
           Size.Height = 20.000000000000000000
           Size.PlatformDefault = False
           Text = 'Channels'
-          TabOrder = 2
+          TabOrder = 3
           OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
           ContentSize = '200'
@@ -396,7 +401,7 @@ object MainForm: TMainForm
           Size.Height = 20.000000000000000000
           Size.PlatformDefault = False
           Text = 'Email Settings'
-          TabOrder = 0
+          TabOrder = 2
           OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
           ContentSize = '291'
@@ -409,11 +414,12 @@ object MainForm: TMainForm
             Text = 'Server address (SMTP):'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 5
+            TabOrder = 10
+            TabStop = False
           end
           object eEmailServerAddress: TEdit
             Touch.InteractiveGestures = [LongTap, DoubleTap]
-            TabOrder = 8
+            TabOrder = 0
             Position.X = 210.000000000000000000
             Position.Y = 9.000000000000000000
             Size.Width = 150.000000000000000000
@@ -423,7 +429,7 @@ object MainForm: TMainForm
           end
           object eEmailServerPort: TEdit
             Touch.InteractiveGestures = [LongTap, DoubleTap]
-            TabOrder = 7
+            TabOrder = 1
             Position.X = 210.000000000000000000
             Position.Y = 36.000000000000000000
             Size.Width = 150.000000000000000000
@@ -440,7 +446,8 @@ object MainForm: TMainForm
             Text = 'Server port:'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 2
+            TabOrder = 8
+            TabStop = False
           end
           object Label8: TLabel
             Position.X = 15.000000000000000000
@@ -451,7 +458,8 @@ object MainForm: TMainForm
             Text = 'Security:'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 0
+            TabOrder = 6
+            TabStop = False
           end
           object cbEmailServerSecurity: TComboBox
             Items.Strings = (
@@ -463,7 +471,7 @@ object MainForm: TMainForm
             Size.Width = 150.000000000000000000
             Size.Height = 22.000000000000000000
             Size.PlatformDefault = False
-            TabOrder = 9
+            TabOrder = 2
             OnChange = cbEmailServerSecurityChange
           end
           object Label9: TLabel
@@ -475,11 +483,12 @@ object MainForm: TMainForm
             Text = 'Username:'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 3
+            TabOrder = 9
+            TabStop = False
           end
           object eEmailServerUsername: TEdit
             Touch.InteractiveGestures = [LongTap, DoubleTap]
-            TabOrder = 6
+            TabOrder = 3
             Position.X = 210.000000000000000000
             Position.Y = 90.000000000000000000
             Size.Width = 150.000000000000000000
@@ -506,7 +515,8 @@ object MainForm: TMainForm
             Text = 'Password:'
             ParentShowHint = False
             ShowHint = True
-            TabOrder = 1
+            TabOrder = 7
+            TabStop = False
           end
           object GroupBox1: TGroupBox
             Align = Top
@@ -519,7 +529,7 @@ object MainForm: TMainForm
             Size.Height = 141.000000000000000000
             Size.PlatformDefault = False
             Text = 'Error Notifications'
-            TabOrder = 10
+            TabOrder = 5
             object sbErrorEmailFrequency: TSpinBox
               Touch.InteractiveGestures = [LongTap, DoubleTap]
               TabOrder = 0
@@ -540,6 +550,7 @@ object MainForm: TMainForm
               ParentShowHint = False
               ShowHint = True
               TabOrder = 7
+              TabStop = False
             end
             object Label13: TLabel
               Position.X = 15.000000000000000000
@@ -551,10 +562,11 @@ object MainForm: TMainForm
               ParentShowHint = False
               ShowHint = True
               TabOrder = 6
+              TabStop = False
             end
             object eErrorEmailSender: TEdit
               Touch.InteractiveGestures = [LongTap, DoubleTap]
-              TabOrder = 10
+              TabOrder = 1
               Position.X = 144.000000000000000000
               Position.Y = 51.000000000000000000
               Size.Width = 206.000000000000000000
@@ -572,10 +584,11 @@ object MainForm: TMainForm
               ParentShowHint = False
               ShowHint = True
               TabOrder = 5
+              TabStop = False
             end
             object eErrorEmailRecipients: TEdit
               Touch.InteractiveGestures = [LongTap, DoubleTap]
-              TabOrder = 9
+              TabOrder = 2
               Position.X = 144.000000000000000000
               Position.Y = 78.000000000000000000
               Size.Width = 206.000000000000000000
@@ -585,7 +598,7 @@ object MainForm: TMainForm
             end
             object eErrorEmailSubject: TEdit
               Touch.InteractiveGestures = [LongTap, DoubleTap]
-              TabOrder = 8
+              TabOrder = 3
               Position.X = 144.000000000000000000
               Position.Y = 105.000000000000000000
               Size.Width = 206.000000000000000000
@@ -603,6 +616,7 @@ object MainForm: TMainForm
               ParentShowHint = False
               ShowHint = True
               TabOrder = 4
+              TabStop = False
             end
             object Label16: TLabel
               Position.X = 248.000000000000000000
@@ -611,7 +625,7 @@ object MainForm: TMainForm
               Size.Height = 17.000000000000000000
               Size.PlatformDefault = False
               Text = 'seconds'
-              TabOrder = 11
+              TabOrder = 8
             end
           end
         end
