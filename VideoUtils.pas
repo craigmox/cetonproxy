@@ -24,8 +24,8 @@ type
   EVideoConverterError = class(Exception);
 
   TVideoReadWriteEvent = reference to function(const aBuf: PByte; const aSize: Integer): Integer;
-
   TVideoLogEvent = reference to procedure(const aMsg: String);
+  TVideoInterruptEvent = reference to procedure(var aAbort: Boolean);
 
   TVideoConverter = class
   private
@@ -39,12 +39,14 @@ type
 
     fProgramFilter: Integer;
     fFinished: Boolean;
+    fOnInterrupt: TVideoInterruptEvent;
 
     function GetErrorStr(const aErrorCode: Integer): String;
 
     procedure LogFmt(const aMsg: String; const aArgs: array of const);
     procedure ErrorFmt(const aMsg: String; const aArgs: array of const);
 
+    procedure CheckInterrupt(var aAbort: Boolean);
     function ReadPacket(const buf: PByte; const buf_size: Integer): Integer;
     function WritePacket(const buf: PByte; const buf_size: Integer): Integer;
 
@@ -59,6 +61,7 @@ type
     property OnRead: TVideoReadWriteEvent read fOnRead write fOnRead;
     property OnWrite: TVideoReadWriteEvent read fOnWrite write fOnWrite;
     property OnLog: TVideoLogEvent read fOnLog write fOnLog;
+    property OnInterrupt: TVideoInterruptEvent read fOnInterrupt write fOnInterrupt;
 
     property ProgramFilter: Integer read fProgramFilter write fProgramFilter;
   end;
@@ -94,6 +97,18 @@ begin
   end;
 end;
 
+function _InterruptCallback(opaque: Pointer): Integer; cdecl;
+var
+  lAbort: Boolean;
+begin
+  lAbort := False;
+  TvideoConverter(opaque).CheckInterrupt(lAbort);
+  if lAbort then
+    Result := 1
+  else
+    Result := 0;
+end;
+
 { TVideoConverter }
 
 procedure TVideoConverter.Open;
@@ -102,6 +117,8 @@ var
 begin
   fInputFormatContext := avformat_alloc_context;
   fInputFormatContext.pb := avio_alloc_context(av_malloc(cConverterPacketSize), cConverterPacketSize, 0, Self, _ReadPacket, nil, nil);
+  fInputFormatContext.interrupt_callback.opaque := Self;
+  fInputFormatContext.interrupt_callback.callback := _InterruptCallback;
 
   lRet := avformat_open_input(@fInputFormatContext, nil, nil, nil);
   if lRet < 0 then
@@ -315,6 +332,12 @@ procedure TVideoConverter.LogFmt(const aMsg: String;
 begin
   if Assigned(fOnLog) then
     fOnLog(Format(Trim(aMsg), aArgs));
+end;
+
+procedure TVideoConverter.CheckInterrupt(var aAbort: Boolean);
+begin
+  if Assigned(fOnInterrupt) then
+    fOnInterrupt(aAbort);
 end;
 
 initialization

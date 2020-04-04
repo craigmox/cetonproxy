@@ -91,6 +91,7 @@ type
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure Log(const aLogName: String; const aMessage: String);
+    procedure LogError(const aLogName: String; const aMessage: String);
     procedure DiscoveredCetonDevicesChanged;
   public
     { Public declarations }
@@ -422,7 +423,7 @@ begin
   TThread.ForceQueue(nil,
     procedure()
     begin
-      if TServiceConfigSection.Other in aSections then
+      if TServiceConfigSection.Server in aSections then
       begin
         RestartServersTimer.Enabled := True;
       end;
@@ -443,6 +444,11 @@ var
   lAddresses: TLocalIPInfoArray;
   lModel: TCetonModel;
 begin
+  // The goal here is to return an IP address that the remote end will be able to reach
+  // us on as an HDHomeRun.  The easiest thing to do is take whatever IP the remote already
+  // used to reach us as the IP address it should continue to use, but of course it's not
+  // that easy.
+
   ConfigManager.LockConfig(lConfig);
   try
     aAddress := lConfig.ExternalAddress;
@@ -468,7 +474,7 @@ begin
   // BaseURLs.
 
   // We can detect if the request is coming from the same computer as this
-  // app by checking if the PeerIP is found in the local address list.
+  // app by checking if the ARequestLocalIP is found in the local address list.
 
   lAddresses := TSocketUtils.GetLocalIPs;
 
@@ -477,13 +483,14 @@ begin
     if ProxyServiceModule.Client.EnabledTunerCount = 0 then
       Exit(False);
 
+    // If it's a USB/PCI device, exclude the local ip that was created by
+    // the Ceton device
+    // TODO: This is not a good assumption to make if it's a USB/PCI device
+    // and set to bridged mode.  If there is only one local IP address,
+    // don't remove it.
     lModel := ProxyServiceModule.Client.Model;
-    if lModel <> TCetonModel.Ethernet then
-    begin
-      // If it's a USB/PCI device, exclude the local ip that was created by
-      // the Ceton device
+    if (lModel <> TCetonModel.Ethernet) and (Length(lAddresses) > 1) then
       lAddresses := lAddresses.Remove(ProxyServiceModule.Client.ListenIP);
-    end;
 
     // Choose a local IP that we should respond to
     aAddress := lAddresses.LowestMetric(4).IP;
@@ -805,6 +812,11 @@ begin
   end
   else
     Result := False;
+end;
+
+procedure TProxyServerModule.LogError(const aLogName, aMessage: String);
+begin
+  // Nothing
 end;
 
 end.

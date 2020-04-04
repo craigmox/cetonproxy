@@ -10,7 +10,8 @@ uses
   Web.WebReq,
   FMX.Types,
   IdHTTPWebBrokerBridge,
-  IDGlobal,
+  IdGlobal,
+  IdStack,
   REST.JSON,
   REST.Json.Types,
   REST.JsonReflect,
@@ -229,6 +230,12 @@ begin
     // If Create here
     lStream := TCetonVideoStream.Create(Client, aTuner, aChannel, aAllowedDisabledTuners, aRemux);
     try
+      lStream.OnCheckAbort :=
+        procedure(var aAbort: Boolean)
+        begin
+          aAbort := not TIdHTTPAppChunkedResponse(Response).Connected;
+        end;
+
       try
         TIdHTTPAppChunkedResponse(Response).SendChunkedStream(lStream,
           procedure(const aPacketSize: Integer; var aContinue: Boolean)
@@ -298,8 +305,31 @@ begin
 end;
 
 procedure TProxyWebModule.HandleException;
+var
+  lError: Boolean;
 begin
-  TLogger.LogFmt(cLogDefault, 'Service handler error: %s', [Exception(ExceptObject).Message]);
+  // Ignore
+  lError := True;
+  if Exception(ExceptObject) is EIdSocketError then
+  begin
+    case EIdSocketError(ExceptObject).LastError of
+      10053, 10054: begin
+        // 10053: Software cause connection abort
+        // 10054: Socket Error
+        lError := False;
+      end;
+    end;
+  end
+  else if Exception(ExceptObject) is ECetonClosedError then
+  begin
+    // Ignore client-initiated close exceptions
+    lError := False;
+  end;
+
+  if lError then
+    TLogger.LogErrorFmt(cLogDefault, 'Service handler error: %s', [Exception(ExceptObject).Message])
+  else
+    TLogger.LogFmt(cLogDefault, 'Service handler error: %s', [Exception(ExceptObject).Message]);
 
   // Send the response ourselves in an exception handler that eats all exceptions to
   // prevent the default handler from doing it and showing an error message box

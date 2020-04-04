@@ -33,7 +33,8 @@ uses
   HDHR,
   Ceton,
   LogUtils,
-  FileUtils;
+  FileUtils,
+  EmailUtils;
 
 const
   cServiceConfigVersion = 2;
@@ -41,9 +42,28 @@ const
   cLogSizeRollover = 2000000;
   cMaxLogFiles = 5;
 
+  cErrorEmailFrequencySec = 60;
+
 type
-  TServiceConfigSection = (Channels, Other);
+  TServiceConfigSection = (Channels, Server, Other);
   TServiceConfigSections = set of TServiceConfigSection;
+
+  TErrorEmailSettings = class(TPersistent)
+  private
+    fFrequencySec: Integer;
+    fSubject: String;
+    fRecipients: String;
+    fSender: String;
+  public
+    constructor Create;
+    procedure AssignTo(Dest: TPersistent); override;
+    procedure Assign(Source: TPersistent); override;
+  published
+    property FrequencySec: Integer read fFrequencySec write fFrequencySec;
+    property Sender: String read fSender write fSender;
+    property Recipients: String read fRecipients write fRecipients;
+    property Subject: String read fSubject write fSubject;
+  end;
 
   TServiceConfig = class(TPersistent)
   private
@@ -55,6 +75,8 @@ type
     fExternalAddress: String;
     fExternalHTTPPort: Integer;
     fVersion: Integer;
+    fEmailServer: TEmailServerSettings;
+    fErrorEmail: TErrorEmailSettings;
 
     procedure CreateDeviceID;
     procedure CreateDeviceUUID;
@@ -66,6 +88,9 @@ type
 
     function ToJSON: String;
     class function FromJSON(const aJSON: String): TServiceConfig; static;
+
+    property EmailServer: TEmailServerSettings read fEmailServer;
+    property ErrorEmail: TErrorEmailSettings read fErrorEmail;
 
     property Ceton: TCetonConfig read fCeton;
 
@@ -83,6 +108,7 @@ type
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure DiscoveredCetonDevicesChanged;
     procedure Log(const aLogName: String; const aMessage: String);
+    procedure LogError(const aLogName: String; const aMessage: String);
   end;
 
   IServiceConfigManager = interface
@@ -91,6 +117,7 @@ type
     procedure UnlockConfig(var aConfig: TServiceConfig);
 
     procedure Log(const aLogName: String; const aMessage: String);
+    procedure LogError(const aLogName: String; const aMessage: String);
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure DiscoveredCetonDevicesChanged;
 
@@ -111,6 +138,7 @@ type
     procedure UnlockConfig(var aConfig: TServiceConfig);
 
     procedure Log(const aLogName: String; const aMessage: String);
+    procedure LogError(const aLogName: String; const aMessage: String);
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure DiscoveredCetonDevicesChanged;
 
@@ -130,8 +158,15 @@ type
     fConfigChanged: Boolean;
     fCetonDeviceDiscovered: Boolean;
     fLogCaches: TArray<TStringBuilder>;
+    fErrorEmailCache: TStringBuilder;
+    fEmailServerSettings: TEmailServerSettings;
+    fErrorEmailSettings: TErrorEmailSettings;
+    fErrorEmailStartDateTime: TDateTime;
+
+    procedure GetEmailSettings;
 
     procedure SaveLogs;
+    procedure SendErrorEmail;
 
     procedure QueryDiscoveredCetonDevices;
   protected
@@ -143,6 +178,7 @@ type
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure Log(const aLogName: String; const aMessage: String);
+    procedure LogError(const aLogName: String; const aMessage: String);
     procedure DiscoveredCetonDevicesChanged;
   public
     constructor Create(const aServiceModule: TProxyServiceModule);
@@ -171,11 +207,14 @@ type
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure Log(const aLogName: String; const aMessage: String);
+    procedure LogError(const aLogName: String; const aMessage: String);
     procedure DiscoveredCetonDevicesChanged;
 
     // ILogger
     procedure ILogger.Log = HandleLoggerLog;
+    procedure ILogger.LogError = HandleLoggerLogError;
     procedure HandleLoggerLog(const aLogName: String; const aMessage: String);
+    procedure HandleLoggerLogError(const aLogName: String; const aMessage: String);
   public
     { Public declarations }
     property ConfigManager: IServiceConfigManager read fConfigManager;
@@ -301,6 +340,8 @@ end;
 constructor TServiceConfig.Create;
 begin
   fCeton := TCetonConfig.Create;
+  fEmailServer := TEmailServerSettings.Create;
+  fErrorEmail := TErrorEmailSettings.Create;
 
   fHTTPPort := HDHR_HTTP_PORT;
   fExternalHTTPPort := fHTTPPort;
@@ -313,6 +354,8 @@ end;
 
 destructor TServiceConfig.Destroy;
 begin
+  fErrorEmail.Free;
+  fEmailServer.Free;
   fCeton.Free;
 
   inherited;
@@ -327,6 +370,8 @@ begin
     lDest := TServiceConfig(Dest);
 
     lDest.fVersion := fVersion;
+    lDest.fEmailServer.Assign(fEmailServer);
+    lDest.fErrorEmail.Assign(fErrorEmail);
     lDest.fCeton.Assign(fCeton);
     lDest.fDeviceID := fDeviceID;
     lDest.fDeviceUUID := fDeviceUUID;
@@ -435,6 +480,21 @@ begin
     for i := 0 to fEventListeners.Count-1 do
     begin
       fEventListeners[i].DiscoveredCetonDevicesChanged;
+    end;
+  finally
+    Unlock;
+  end;
+end;
+
+procedure TServiceConfigManager.LogError(const aLogName, aMessage: String);
+var
+  i: Integer;
+begin
+  Lock;
+  try
+    for i := 0 to fEventListeners.Count-1 do
+    begin
+      fEventListeners[i].LogError(aLogName, aMessage);
     end;
   finally
     Unlock;
@@ -669,6 +729,18 @@ begin
   // Nothing
 end;
 
+procedure TProxyServiceModule.LogError(const aLogName, aMessage: String);
+begin
+  // Nothing
+end;
+
+procedure TProxyServiceModule.HandleLoggerLogError(const aLogName,
+  aMessage: String);
+begin
+  // Pass to config manager to allow broadcasting it to multiple recipients
+  ConfigManager.LogError(aLogName, aMessage);
+end;
+
 { TServiceThread }
 
 constructor TServiceThread.Create(const aServiceModule: TProxyServiceModule);
@@ -682,6 +754,12 @@ begin
   SetLength(fLogCaches, Length(cLogNames));
   for i := 0 to High(cLogNames) do
     fLogCaches[i] := TStringBuilder.Create;
+
+  fEmailServerSettings := TEmailServerSettings.Create;
+  fErrorEmailSettings := TErrorEmailSettings.Create;
+  fErrorEmailCache := TStringBuilder.Create;
+
+  GetEmailSettings;
 
   fServiceModule.ConfigManager.AddListener(Self);
 
@@ -708,6 +786,10 @@ begin
   fChangeEvent.Free;
   for i := 0 to High(cLogNames) do
     fLogCaches[i].Free;
+
+  fErrorEmailCache.Free;
+  fErrorEmailSettings.Free;
+  fEmailServerSettings.Free;
 
   inherited;
 end;
@@ -781,6 +863,8 @@ begin
       begin
         fConfigChanged := False;
 
+        GetEmailSettings;
+
         fServiceModule.SaveConfig;
       end;
 
@@ -822,6 +906,8 @@ begin
 
       if fServiceModule.DiscoveredCetonDeviceList.Clean then
         fServiceModule.ConfigManager.DiscoveredCetonDevicesChanged;
+
+      SendErrorEmail;
     end;
   finally
     CoUninitialize;
@@ -874,6 +960,8 @@ var
 begin
   for i := 0 to High(cLogNames) do
   begin
+    lText := '';
+
     TMonitor.Enter(fLogCaches[i]);
     try
       if fLogCaches[i].Length = 0 then
@@ -910,6 +998,124 @@ end;
 procedure TServiceThread.DiscoveredCetonDevicesChanged;
 begin
   // Nothing
+end;
+
+procedure TServiceThread.LogError(const aLogName, aMessage: String);
+var
+  lMsg: String;
+begin
+  Log(aLogName, aMessage);
+
+  // Log for email notification
+  if SameText(aLogName, cLogDefault) then
+  begin
+    lMsg := Format('[%s] %s', [FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now), aMessage]);
+
+    TMonitor.Enter(fErrorEmailCache);
+    try
+      fErrorEmailCache.AppendLine(lMsg);
+    finally
+      TMonitor.Exit(fErrorEmailCache);
+    end;
+  end;
+end;
+
+procedure TServiceThread.SendErrorEmail;
+var
+  lText: String;
+  lEmail: TEmail;
+begin
+  lText := '';
+
+  TMonitor.Enter(fErrorEmailCache);
+  try
+    if fErrorEmailCache.Length = 0 then
+      Exit;
+
+    if fErrorEmailStartDateTime = 0 then
+    begin
+      // Start the timer to the next email now
+      fErrorEmailStartDateTime := Now;
+      Exit;
+    end;
+
+    if Now < IncSecond(fErrorEmailStartDateTime, fErrorEmailSettings.FrequencySec) then
+      Exit;
+
+    lText := fErrorEmailCache.ToString;
+    fErrorEmailCache.Length := 0;
+    fErrorEmailStartDateTime := 0;
+  finally
+    TMonitor.Exit(fErrorEmailCache);
+  end;
+
+  if (fErrorEmailSettings.Recipients <> '') and (fEmailServerSettings.ServerAddress <> '') then
+  begin
+    lEmail := TEmail.Create;
+    try
+      lEmail.Sender := fErrorEmailSettings.Sender;
+      lEmail.Recipients := fErrorEmailSettings.Recipients;
+      lEmail.Subject := fErrorEmailSettings.Subject;
+      lEmail.Body := lText;
+
+      try
+        TEmailUtils.Send(fEmailServerSettings, lEmail);
+      except
+        on e: Exception do
+        begin
+          // Do not send to error to avoid loop
+          TLogger.Log(cLogDefault, Format('Unable to send email: %s', [e.Message]));
+        end;
+      end;
+    finally
+      lEmail.Free;
+    end;
+  end;
+end;
+
+procedure TServiceThread.GetEmailSettings;
+var
+  lConfig: TServiceConfig;
+begin
+  fServiceModule.ConfigManager.LockConfig(lConfig);
+  try
+    fEmailServerSettings.Assign(lConfig.EmailServer);
+    fErrorEmailSettings.Assign(lConfig.ErrorEmail);
+  finally
+    fServiceModule.ConfigManager.UnlockConfig(lConfig);
+  end;
+end;
+
+{ TErrorEmailSettings }
+
+constructor TErrorEmailSettings.Create;
+begin
+  Assign(nil);
+end;
+
+procedure TErrorEmailSettings.AssignTo(Dest: TPersistent);
+begin
+  if Dest is TErrorEmailSettings then
+  begin
+    TErrorEmailSettings(Dest).fFrequencySec := fFrequencySec;
+    TErrorEmailSettings(Dest).fSender := fSender;
+    TErrorEmailSettings(Dest).fRecipients := fRecipients;
+    TErrorEmailSettings(Dest).fSubject := fSubject;
+  end
+  else
+    inherited;
+end;
+
+procedure TErrorEmailSettings.Assign(Source: TPersistent);
+begin
+  if not Assigned(Source) then
+  begin
+    fFrequencySec := cErrorEmailFrequencySec;
+    fSender := 'cetonproxy';
+    fSubject := 'Cetonproxy error';
+  end
+  else
+    inherited;
 end;
 
 end.

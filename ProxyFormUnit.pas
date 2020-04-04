@@ -33,6 +33,7 @@ uses
   FMX.SpinBox, 
   FMX.Menus,
   FMX.Platform,
+  FMX.Objects,
   REST.json,
   REST.Client,
 
@@ -41,9 +42,10 @@ uses
   HDHR,
   Ceton,
   SocketUtils,
+  EmailUtils,
 
   ProxyServiceModuleUnit,
-  ProxyServerModuleUnit, FMX.Objects;
+  ProxyServerModuleUnit;
 
 type
   TChannelListBoxItem = class(TListBoxItem)
@@ -92,6 +94,27 @@ type
     lblHelp: TLabel;
     eCetonTunerAddress: TComboEdit;
     lbTuners: TListBox;
+    pnlEmailSettings: TExpander;
+    Label11: TLabel;
+    eEmailServerAddress: TEdit;
+    eEmailServerPort: TEdit;
+    Label5: TLabel;
+    Label8: TLabel;
+    cbEmailServerSecurity: TComboBox;
+    Label9: TLabel;
+    eEmailServerUsername: TEdit;
+    eEmailServerPassword: TEdit;
+    Label10: TLabel;
+    GroupBox1: TGroupBox;
+    sbErrorEmailFrequency: TSpinBox;
+    Label12: TLabel;
+    Label13: TLabel;
+    eErrorEmailSender: TEdit;
+    Label14: TLabel;
+    eErrorEmailRecipients: TEdit;
+    eErrorEmailSubject: TEdit;
+    Label15: TLabel;
+    Label16: TLabel;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
@@ -114,6 +137,15 @@ type
     procedure FormMouseWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: Integer; var Handled: Boolean);
     procedure lbTunersChangeCheck(Sender: TObject);
+    procedure eEmailServerAddressChangeTracking(Sender: TObject);
+    procedure eEmailServerPortChangeTracking(Sender: TObject);
+    procedure cbEmailServerSecurityChange(Sender: TObject);
+    procedure eEmailServerUsernameChangeTracking(Sender: TObject);
+    procedure eEmailServerPasswordChangeTracking(Sender: TObject);
+    procedure sbErrorEmailFrequencyChangeTracking(Sender: TObject);
+    procedure eErrorEmailSenderChangeTracking(Sender: TObject);
+    procedure eErrorEmailRecipientsChangeTracking(Sender: TObject);
+    procedure eErrorEmailSubjectChangeTracking(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
@@ -147,6 +179,7 @@ type
     // IServiceConfigEvents
     procedure Changed(const aSender: TObject; const aSections: TServiceConfigSections);
     procedure Log(const aLogName: String; const aMessage: String);
+    procedure LogError(const aLogName: String; const aMessage: String);
     procedure DiscoveredCetonDevicesChanged;
   public
     { Public declarations }
@@ -349,6 +382,26 @@ begin
       eHDHRListenHTTPPort.Text := IntToStr(lConfig.HTTPPort);
       eHDHRExternalAddress.Text := lConfig.ExternalAddress;
       eHDHRExternalHTTPPort.Text := IntToStr(lConfig.ExternalHTTPPort);
+
+      eEmailServerAddress.Text := lConfig.EmailServer.ServerAddress;
+      eEmailServerPort.Text := IntToStr(lConfig.EmailServer.ServerPort);
+      case lConfig.EmailServer.TLSOption of
+        TEmailTLSOption.None, TEmailTLSOption.NoTLSSupport: cbEmailServerSecurity.ItemIndex := 0;
+        TEmailTLSOption.UseImplicitTLS, TEmailTLSOption.UseRequireTLS, TEmailTLSOption.UseExplicitTLS: begin
+          case lConfig.EmailServer.SSLVersion of
+            TEmailSSLVersion.None: cbEmailServerSecurity.ItemIndex := 0;
+            TEmailSSLVersion.SSLv2, TEmailSSLVersion.SSLv23, TEmailSSLVersion.SSLv3: cbEmailServerSecurity.ItemIndex := 2;
+            TEmailSSLVersion.TLSv1, TEmailSSLVersion.TLSv1_1, TEmailSSLVersion.TLSv1_2: cbEmailServerSecurity.ItemIndex := 1;
+          end;
+        end;
+      end;
+      eEmailServerUsername.Text := lConfig.EmailServer.Username;
+      eEmailServerPassword.Text := lConfig.EmailServer.Password;
+
+      sbErrorEmailFrequency.Value := lConfig.ErrorEmail.FrequencySec;
+      eErrorEmailSender.Text := lConfig.ErrorEmail.Sender;
+      eErrorEmailRecipients.Text := lConfig.ErrorEmail.Recipients;
+      eErrorEmailSubject.Text := lConfig.ErrorEmail.Subject;
     finally
       ConfigManager.UnlockConfig(lConfig);
     end;
@@ -569,7 +622,7 @@ begin
       ConfigManager.UnlockConfig(lConfig);
     end;
 
-    Save([TServiceConfigSection.Other]);
+    Save([TServiceConfigSection.Server]);
   end;
 end;
 
@@ -604,7 +657,7 @@ begin
       ConfigManager.UnlockConfig(lConfig);
     end;
 
-    Save([TServiceConfigSection.Other]);
+    Save([TServiceConfigSection.Server]);
   end;
 end;
 
@@ -812,9 +865,176 @@ begin
       ConfigManager.UnlockConfig(lConfig);
     end;
 
-    // TODO: Use another config section so that servers aren't restarted
     Save([TServiceConfigSection.Other]);
   end;
+end;
+
+procedure TMainForm.eEmailServerAddressChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.EmailServer.ServerAddress := eEmailServerAddress.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.eEmailServerPortChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.EmailServer.ServerPort := StrToIntDef(eEmailServerPort.Text, cEmailDefaultPort);
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.cbEmailServerSecurityChange(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      case cbEmailServerSecurity.ItemIndex of
+        -1,0: lConfig.EmailServer.TLSOption := TEmailTLSOption.None;
+        1: begin
+          lConfig.EmailServer.TLSOption := TEmailTLSOption.UseRequireTLS;
+          lConfig.EmailServer.SSLVersion := TEmailSSLVersion.TLSv1_2;
+        end;
+        2: begin
+          lConfig.EmailServer.TLSOption := TEmailTLSOption.UseRequireTLS;
+          lConfig.EmailServer.SSLVersion := TEmailSSLVersion.SSLv3;
+        end;
+      end;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.eEmailServerUsernameChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.EmailServer.Username := eEmailServerUsername.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.eEmailServerPasswordChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.EmailServer.Password := eEmailServerPassword.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.sbErrorEmailFrequencyChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.ErrorEmail.FrequencySec := Round(sbErrorEmailFrequency.Value);
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.eErrorEmailSenderChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.ErrorEmail.Sender := eErrorEmailSender.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.eErrorEmailRecipientsChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.ErrorEmail.Recipients := eErrorEmailRecipients.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.eErrorEmailSubjectChangeTracking(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+begin
+  if not InterfaceUpdating then
+  begin
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.ErrorEmail.Subject := eErrorEmailSubject.Text;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    Save([TServiceConfigSection.Other]);
+  end;
+end;
+
+procedure TMainForm.LogError(const aLogName, aMessage: String);
+begin
+  // TODO
 end;
 
 end.

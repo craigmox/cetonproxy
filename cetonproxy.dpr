@@ -36,7 +36,8 @@ uses
   libavutil_log in 'ffmpeg\src\headers\libavutil_log.pas',
   libavutil_avstring in 'ffmpeg\src\headers\libavutil_avstring.pas',
   LogUtils in 'LogUtils.pas',
-  FileUtils in 'FileUtils.pas';
+  FileUtils in 'FileUtils.pas',
+  EmailUtils in 'EmailUtils.pas';
 
 {$R *.res}
 

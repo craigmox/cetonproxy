@@ -214,6 +214,8 @@ type
   TCetonModel = (Ethernet, USB, PCI);
 
   TREST = class abstract
+  private
+    class function GetTunerCountFromDescriptionXML(const aXMLContent: String): Integer; static;
   public
     type
       TValidateValueCallback = reference to function(const aValue: String): Boolean;
@@ -407,6 +409,8 @@ type
     OutMeter: TDataMeter;
   end;
 
+  TCheckAbortEvent = reference to procedure(var aAbort: Boolean);
+
   TCetonVideoStream = class(TStream)
   private
     fWriteBuffer, fReadBuffer: TRingBuffer;
@@ -417,10 +421,16 @@ type
     fConverterError: Exception;
     fConverterErrorAddress: Pointer;
     fProgramFilter: Integer;
+    fAbort: Boolean;
+    fCheckAbortTimer: TStopwatch;
+    fOnCheckAbort: TCheckAbortEvent;
+
+    procedure DoCheckAbort(var aAbort: Boolean);
 
     function ConverterRead(const aBuf: PByte; const aSize: Integer): Integer;
     function ConverterWrite(const aBuf: PByte; const aSize: Integer): Integer;
     procedure ConverterLog(const aMsg: String);
+    procedure ConverterInterrupt(var aAbort: Boolean);
   public
     constructor Create(const aClient: TCetonClient; const aTuner: Integer; const aChannel: Integer; const aAllowedDisabledTuners: Boolean; const aRemux: Boolean); reintroduce;
     destructor Destroy; override;
@@ -432,6 +442,8 @@ type
     property Viewer: TCetonViewer read fViewer;
 
     property Stats: TCetonViewerStats read fStats;
+
+    property OnCheckAbort: TCheckAbortEvent read fOnCheckAbort write fOnCheckAbort;
   end;
 
   TDiscoveredCetonDevice = record
@@ -904,20 +916,38 @@ begin
 end;
 
 class function TREST.GetTunerCount(const aClient: TRestClient): Integer;
-//var
-//  lRequest: TRESTRequest;
+var
+  lRequest: TRESTRequest;
 begin
   TLogger.Log(cLogDefault, 'Checking tuner count');
 
+  lRequest := TRESTRequest.Create(nil);
+  try
+    lRequest.Timeout := 1500;
+
+    lRequest.Client := aClient;
+    lRequest.Method := TRESTRequestMethod.rmGet;
+    lRequest.Resource := 'description.xml';
+
+    lRequest.Execute;
+
+    Result := GetTunerCountFromDescriptionXML(lRequest.Response.Content);
+  finally
+    lRequest.Free;
+  end;
+
+
+{ // Following also doesn't work because newer firmwares appear to also respond to this.
   // A 4 tuner PCI card still seems to respond to information requests for tuners 5
   // and 6.  But one difference I saw is that DescramblingStatus is (null) on
   // nonexistant tuners, so using this for now.
   if SameText(TREST.GetVar(aClient, 5, 'cas', 'DescramblingStatus', 3000), '(null)') then
     Result := 4
   else
-    Result := 6;
+    Result := 6;}
 
-{  lRequest := TRESTRequest.Create(nil);
+{ // Following method doesn't work because 4 tuner cards still respond
+  lRequest := TRESTRequest.Create(nil);
   try
     lRequest.Timeout := 1500;
 
@@ -954,6 +984,44 @@ begin
     Result := TCetonModel.Ethernet;
 
   TLogger.LogFmt(cLogDefault, 'Determined tuner model: %s', [GetEnumName(TypeInfo(TCetonModel), Integer(Result))]);
+end;
+
+class function TREST.GetTunerCountFromDescriptionXML(
+  const aXMLContent: String): Integer;
+var
+  lXML: IXMLDocument;
+  lRootNode, lDeviceNode, lDeviceListNode, lSubDeviceNode, lDeviceTypeNode: IXMLNode;
+  i: Integer;
+begin
+  Result := 0;
+
+  lXML := TXMLDocument.Create(nil);
+  lXML.LoadFromXML(aXMLContent);
+
+  lRootNode := lXML.ChildNodes.FindNode('root');
+  if Assigned(lRootNode) then
+  begin
+    lDeviceNode := lRootNode.ChildNodes.FindNode('device');
+    if Assigned(lDeviceNode) then
+    begin
+      lDeviceListNode := lDeviceNode.ChildNodes.FindNode('deviceList');
+      if Assigned(lDeviceListNode) then
+      begin
+        for i := 0 to lDeviceListNode.ChildNodes.Count-1 do
+        begin
+          lSubDeviceNode := lDeviceListNode.ChildNodes[i];
+
+          lDeviceTypeNode := lSubDeviceNode.ChildNodes.FindNode('deviceType');
+          if Assigned(lDeviceTypeNode) and (lDeviceTypeNode.Text.ToLower.Contains(':mediaserver:')) then
+            Inc(Result);
+        end;
+      end;
+    end;
+  end;
+
+  // Fallback
+  if Result = 0 then
+    Result := 6;
 end;
 
 { TTunerList }
@@ -1057,10 +1125,13 @@ begin
           for i := 0 to fTunerList.Count-1 do
           begin
             lTuner := fTunerList[i];
-            if (aAllowDisabledTuners) or ((i < fConfig.Tuners.Count) and (fConfig.Tuners[i].Enabled)) then
+            if not lTuner.Active then
             begin
-              aViewer.TunerIndex := i;
-              Break;
+              if (aAllowDisabledTuners) or ((i < fConfig.Tuners.Count) and (fConfig.Tuners[i].Enabled)) then
+              begin
+                aViewer.TunerIndex := i;
+                Break;
+              end;
             end;
           end;
           if aViewer.TunerIndex = -1 then
@@ -1074,7 +1145,6 @@ begin
         lTunerIndex := 0;
         for i := 0 to fTunerList.Count-1 do
         begin
-          lTuner := fTunerList[i];
           if (aAllowDisabledTuners) or ((i < fConfig.Tuners.Count) and (fConfig.Tuners[i].Enabled)) then
           begin
             if lTunerIndex = aTuner then
@@ -1157,7 +1227,7 @@ begin
           end;
         until lReceivedPacket or (lCount >= 3);
 
-        // Get copy protection status for informational purposes
+        // Get other info for logging purposes
         TRest.GetVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus');
 
         lTuner.Channel := aChannel;
@@ -1422,6 +1492,13 @@ begin
       on e: Exception do
         TLogger.LogFmt(cLogDefault, 'Unable to detect tuner listen IP: %s', [e.Message]);
     end;
+
+    // Get other information for logging
+    try
+      TRest.GetVar(fClient, 0, 'diag', 'Host_Firmware');
+    except
+      //
+    end;
   except
     raise ECetonError.CreateFmt('Unable to reach tuner at %s', [lTunerAddress]);
   end;
@@ -1668,11 +1745,24 @@ end;
 
 function TCetonVideoStream.ConverterRead(const aBuf: PByte;
   const aSize: Integer): Integer;
+var
+  lAbort: Boolean;
 begin
   // Read packets from client into a ring buffer and then
   // copy them into the read buffer to go to converter
-
   try
+    lAbort := False;
+    DoCheckAbort(lAbort);
+    if lAbort then
+    begin
+      if not Assigned(fConverterError) then
+      begin
+        fConverterError := ECetonClosedError.Create('Client connection closed');
+        fConverterErrorAddress := ReturnAddress;
+      end;
+      Exit(0);
+    end;
+
     while fReadBuffer.Size < aSize do
       fClient.ReadStream(fViewer, fReadBuffer, aSize-fReadBuffer.Size, cReadPacketSize);
 
@@ -1715,6 +1805,8 @@ begin
   fReadBuffer := TRingBuffer.Create;
   fWriteBuffer := TRingBuffer.Create;
 
+  fCheckAbortTimer := TStopwatch.StartNew;
+
   fClient.StartStream(aTuner, aChannel, aAllowedDisabledTuners, fViewer);
 
   fProgramFilter := -1;
@@ -1729,6 +1821,7 @@ begin
         fConverter.OnRead := ConverterRead;
         fConverter.OnWrite := ConverterWrite;
         fConverter.OnLog := ConverterLog;
+        fConverter.OnInterrupt := ConverterInterrupt;
 {$IFDEF DEBUGSINK}
         fConverter.ProgramFilter := cDebugSinkProgramNumber;
 {$ELSE}
@@ -1747,10 +1840,20 @@ function TCetonVideoStream.Read(var Buffer; Count: Longint): Longint;
 begin
   if Assigned(fConverter) then
   begin
-    // Fill ring buffer by way of video converter
-    while (fWriteBuffer.Size < Count) and (not Assigned(fConverterError)) do
-      if not fConverter.Next then
-        Break;
+    try
+      // Fill ring buffer by way of video converter
+      while (fWriteBuffer.Size < Count) and (not Assigned(fConverterError)) do
+        if not fConverter.Next then
+          Break;
+    except
+      // Prefer an exception already stored in fConverterError, because that is the
+      // original error
+      if not Assigned(fConverterError) then
+      begin
+        fConverterError := Exception(AcquireExceptionObject);
+        fConverterErrorAddress := ExceptAddr;
+      end;
+    end;
 
     if Assigned(fConverterError) then
       raise fConverterError at fConverterErrorAddress;
@@ -1791,6 +1894,31 @@ end;
 procedure TCetonVideoStream.ConverterLog(const aMsg: String);
 begin
   TLogger.LogFmt(cLogDefault, 'Client %d tuner %d video converter: %s', [fViewer.Reader.ReaderIndex, fViewer.TunerIndex, aMsg]);
+end;
+
+procedure TCetonVideoStream.ConverterInterrupt(var aAbort: Boolean);
+begin
+  DoCheckAbort(aAbort);
+end;
+
+procedure TCetonVideoStream.DoCheckAbort(var aAbort: Boolean);
+begin
+  if fAbort then
+  begin
+    aAbort := True;
+    Exit;
+  end;
+
+  if fCheckAbortTimer.ElapsedMilliseconds >= 1000 then
+  begin
+    fCheckAbortTimer.Reset;
+    fCheckAbortTimer.Start;
+
+    if Assigned(fOnCheckAbort) then
+      fOnCheckAbort(aAbort);
+
+    fAbort := aAbort;
+  end;
 end;
 
 { TChannelMapItem }
