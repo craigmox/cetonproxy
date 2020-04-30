@@ -9,14 +9,15 @@ An app that allows a Ceton InfiniTV PCI/USB/ethernet tuner to appear as a Silico
 # Install
 
 1. If you have an ethernet Ceton device, you do not need any drivers installed.  But if you have a PCI or USB device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).  In either case, you do not need Windows Media Center.  Also, cetonproxy does not use BDA drivers which were removed from Windows 10 a while back, so there is no need to use an old version of Windows 10.
-2. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
-3. Extract the contents of the zip file to a new folder of your choice.
-4. Run cetonproxy.exe.
-5. Choose the IP to your Ceton tuner device in the `Ceton tuner address` drop-down.
-6. Click the `Channels` section to expand it.
-7. Click `Edit Channels` for it to request the channel list from the Ceton.
-8. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
-9. It should now be discoverable as an HDHomeRun device in your DVR software.  
+2. Your Ceton device firmware version *MUST* be at least 13.5.6.132.  Older firmwares like 1.2.2.6 do not support streaming video in a way that cetonproxy supports.  Updating firmware can be risky and has the potential to make your device inoperable, so only try if you're feeling adventurous.  Depending on the firmware you're starting from, update in several steps: 13.5.6.132 to 14.4.6.21 to 15.1.13.152.  Download the firmware versions you need from [here](https://drive.google.com/drive/folders/1TOsMOWsUth0VwiZc0nfGG7at5OjdCuqj?usp=sharing)
+3. Download the [latest release zip file](https://github.com/craigmox/cetonproxy/releases/latest/download/cetonproxy.zip) (from the Releases page).
+4. Extract the contents of the zip file to a new folder of your choice.
+5. Run cetonproxy.exe.
+6. Choose the IP to your Ceton tuner device in the `Ceton tuner address` drop-down.
+7. Click the `Channels` section to expand it.
+8. Click `Edit Channels` for it to request the channel list from the Ceton.
+9. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
+10. It should now be discoverable as an HDHomeRun device in your DVR software.  
 
 # Testing
 In a web browser, connect to `http://<IP of PC running cetonproxy>:5004/lineup.xml` to make sure it responds with the set of channels you configured above.  
