@@ -1302,6 +1302,7 @@ end;
 function TCetonClient.GetListenIP: String;
 var
   lDetectedListenIP: String;
+  lAddresses: TLocalIPInfoArray;
 begin
   Lock;
   try
@@ -1316,7 +1317,8 @@ begin
 
   if Result = '' then
   begin
-    Result := TSocketUtils.GetLocalIPs.LowestMetric(4).IP;
+    lAddresses := TSocketUtils.GetLocalIPs;
+    Result := lAddresses.LowestMetric(4).IP;
   end;
 end;
 
@@ -1608,6 +1610,8 @@ end;
 destructor TTuner.Destroy;
 begin
   RemoveSink;
+
+  fStatsLock.Free;
 
   inherited;
 end;

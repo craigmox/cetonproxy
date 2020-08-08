@@ -197,7 +197,9 @@ begin
       ConfigManager.UnlockConfig(lConfig);
     end;
 
-    lLocalIPs := TSocketUtils.GetLocalIPs.Keep(4);
+    lLocalIPs := TSocketUtils.GetLocalIPs;
+    // FastMM detected memory corruption unless separated into 2 assignments
+    lLocalIPs := lLocalIPs.Keep(4);
 
     try
       fServer.Bindings.Clear;

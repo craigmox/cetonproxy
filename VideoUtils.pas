@@ -55,6 +55,7 @@ type
     procedure Close;
   public
     constructor Create;
+    destructor Destroy; override;
 
     function Next: Boolean;
 
@@ -231,17 +232,28 @@ begin
   if Assigned(fOutputFormatContext) then
     av_write_trailer(fOutputFormatContext);
 
-  av_freep(@fInputFormatContext.pb.buffer);
-  avio_context_free(@fInputFormatContext.pb);
-  avformat_free_context(fInputFormatContext);
+  if Assigned(fOutputFormatContext) then
+  begin
+    av_freep(@fOutputFormatContext.pb.buffer);
+    avio_context_free(@fOutputFormatContext.pb);
 
-  av_freep(@fOutputFormatContext.pb.buffer);
-  avio_context_free(@fOutputFormatContext.pb);
-  avformat_free_context(fOutputFormatContext);
+    avformat_free_context(fOutputFormatContext);
 
-  fInputFormatContext := nil;
-  fOutputFormatContext := nil;
+    fOutputFormatContext := nil;
+  end;
+
+  if Assigned(fInputFormatContext) then
+  begin
+    av_freep(@fInputFormatContext.pb.buffer);
+    avio_context_free(@fInputFormatContext.pb);
+
+    avformat_close_input(@fInputFormatContext);
+
+    fInputFormatContext := nil;
+  end;
+
   fStreamMapping := nil;
+  fStreamInputDTS := nil;
 end;
 
 constructor TVideoConverter.Create;
@@ -338,6 +350,13 @@ procedure TVideoConverter.CheckInterrupt(var aAbort: Boolean);
 begin
   if Assigned(fOnInterrupt) then
     fOnInterrupt(aAbort);
+end;
+
+destructor TVideoConverter.Destroy;
+begin
+  Close;
+
+  inherited;
 end;
 
 initialization

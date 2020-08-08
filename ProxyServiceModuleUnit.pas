@@ -548,6 +548,8 @@ begin
   SaveConfig;
 
   TLogger.Log(cLogDefault, 'Closing cetonproxy');
+
+  TLogger.SetLogger(nil);
 end;
 
 function TProxyServiceModule.GetConfigPath: String;

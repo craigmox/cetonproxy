@@ -801,6 +801,7 @@ begin
               begin
                 if Assigned(lCurAddress.Address.lpSockaddr) then
                 begin
+                  lInfo := Default(TLocalIPInfo);
                   lInfo.IPVersion := 0;
                   case lCurAddress.Address.lpSockaddr.sin_family of
                     AF_INET: begin
@@ -819,7 +820,7 @@ begin
 
                   if lInfo.IPVersion > 0 then
                   begin
-                    lInfo.FriendlyName := WideString(lCurAdapterAddress.FriendlyName);
+                    lInfo.FriendlyName := String(WideString(lCurAdapterAddress.FriendlyName));
                     lList.Add(lInfo);
                   end;
                 end;
@@ -910,7 +911,7 @@ begin
   i := IndexOf(aIP);
   if i > -1 then
   begin
-    SetLength(Result, Length(Self)-1);
+    SetLength(Result, Length(Self));
     lCount := 0;
     for i := 0 to High(Self) do
       if not SameText(Self[i].IP, aIP) then
@@ -932,7 +933,7 @@ begin
   SetLength(Result, Length(Self));
   lCount := 0;
   for i := 0 to High(Self) do
-    if not Self[i].IPVersion <> aIPVersion then
+    if Self[i].IPVersion = aIPVersion then
     begin
       Result[lCount] := Self[i];
       Inc(lCount);
