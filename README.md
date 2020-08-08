@@ -6,6 +6,10 @@ An app that allows a Ceton InfiniTV PCI/USB/ethernet tuner to appear as a Silico
 - Plex
 - Emby
 
+# Project status
+
+I have not had time to put towards this project, so progress may remain slow.  Feel free to create an issue for support or a feature request, but I may not be able to respond for a while.  Hopefully others can chime in to help!
+
 # Install
 
 1. If you have an ethernet Ceton device, you do not need any drivers installed.  But if you have a PCI or USB device, you must install Ceton drivers.  Download them [here](http://seanmauch.com/ceton-infinitv-drivers/).  In either case, you do not need Windows Media Center.  Also, cetonproxy does not use BDA drivers which were removed from Windows 10 a while back, so there is no need to use an old version of Windows 10.
@@ -15,9 +19,8 @@ An app that allows a Ceton InfiniTV PCI/USB/ethernet tuner to appear as a Silico
 5. Run cetonproxy.exe.
 6. Choose the IP to your Ceton tuner device in the `Ceton tuner address` drop-down.
 7. Click the `Channels` section to expand it.
-8. Click `Edit Channels` for it to request the channel list from the Ceton.
-9. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
-10. It should now be discoverable as an HDHomeRun device in your DVR software.  
+8. Click the checkmark next to the channels that you wish to be accessible through the HDHomeRun service.  Holding `shift` while clicking checkmarks allows selecting them in bulk.
+9. It should now be discoverable as an HDHomeRun device in your DVR software.  
 
 # Testing
 In a web browser, connect to `http://<IP of PC running cetonproxy>:5004/lineup.xml` to make sure it responds with the set of channels you configured above.  
@@ -30,7 +33,6 @@ Log files are created in the app's configuration folder and can be useful if you
 
 # Broken
 - I do not have a way to test ClearQAM channels, DVB tuning, or many other scenarios that the InfiniTV supports, so they likely won't work "out of the box".  I am in USA on Comcast, so I can't say it will work on anything else.
-- If there is interest in a Linux/Android/OSX version, let me know, and I can try to put time into it.
 
 # FAQ
 
@@ -39,6 +41,23 @@ Log files are created in the app's configuration folder and can be useful if you
 It stores everything in a JSON file at `C:\Users\<username>\AppData\Roaming\cetonproxy\config.js`
 
 If you want it to save somewhere else, you can run it with a command line parameter: `cetonproxy.exe -config "c:\your\config\folder"`
+
+## How can I have the app run automatically on startup?
+
+### Option 1
+Add it to the Startup folder in Windows.  Press `Windows+R` buttons to open up the run prompt.  Enter `shell:startup` to open the startup folder.  Right-click on `cetonproxy.exe` in your cetonproxy folder and drag it to the startup folder.  Choose `Create shortcuts here` to create a shortcut to the app.
+
+### Option 2
+Run it as a service through the built in Task Scheduler in Windows.  Just create a New Task with the following parameters:
+
+**General** - Select "Run whether user is logged on or not".  It may be a good idea to create a separate user account for cetonproxy to run as, but you can use your existing account of choice.  
+**Triggers** - "At Startup"  
+**Action** - "Start a program"  
+Start a Program - Browse to cetonproxy directory and select the .exe
+
+When you restart your computer you should see cetonproxy in task manager running in the background.  Only caveat is if you need to make any modifications you'll have to kill that task and open it manually in order to get to the gui. 
+
+**Thank you cornesto for suggesting this!**
 
 ## Can it be used with multiple Ceton devices?
 
