@@ -13,6 +13,7 @@ uses
   System.Math,
   System.Generics.Collections,
 
+  WinApi.ActiveX,
   WinApi.Windows,
   Winapi.ShellApi,
 
@@ -34,6 +35,8 @@ uses
   FMX.Menus,
   FMX.Platform,
   FMX.Objects,
+  FMX.Effects, 
+  FMX.Filter.Effects,
   REST.json,
   REST.Client,
 
@@ -62,7 +65,6 @@ type
 
   TMainForm = class(TForm, IServiceConfigEvents)
     lbChannels: TListBox;
-    btnEditChannels: TButton;
     StyleBook1: TStyleBook;
     VertScrollBox1: TVertScrollBox;
     Label1: TLabel;
@@ -115,10 +117,17 @@ type
     eErrorEmailSubject: TEdit;
     Label15: TLabel;
     Label16: TLabel;
+    pnlStatus: TLayout;
+    FillEffect1: TFillEffect;
+    RoundRect1: TRoundRect;
+    Layout4: TLayout;
+    Layout5: TLayout;
+    RoundRect2: TRoundRect;
+    RoundRect3: TRoundRect;
+    Label17: TLabel;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure lbChannelsChangeCheck(Sender: TObject);
-    procedure btnEditChannelsClick(Sender: TObject);
     procedure SaveTimerTimer(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure ceCetonListenIPChangeTracking(Sender: TObject);
@@ -146,14 +155,16 @@ type
     procedure eErrorEmailSenderChangeTracking(Sender: TObject);
     procedure eErrorEmailRecipientsChangeTracking(Sender: TObject);
     procedure eErrorEmailSubjectChangeTracking(Sender: TObject);
+    procedure pnlChannelsExpandedChanged(Sender: TObject);
   private
     { Private declarations }
     fConfigManager: IServiceConfigManager;
 
-    fEditingChannels: Boolean;
     fInterfaceUpdateCount: Integer;
     fSave: Boolean;
     fSaveSections: TServiceConfigSections;
+
+    fRequestChannelsThread: TThread;
 
     function GetClient: TCetonClient;
 
@@ -172,6 +183,7 @@ type
     procedure UpdateChannelCount;
     procedure FillChannels;
     procedure FillTuners;
+    procedure RequestChannelsAsync;
 
     property ConfigManager: IServiceConfigManager read fConfigManager;
     property Client: TCetonClient read GetClient;
@@ -278,7 +290,7 @@ var
   lConfig: TServiceConfig;
   lChannelMap: TChannelMap;
 begin
-  if fEditingChannels then
+  if pnlChannels.IsExpanded then
   begin
     lChannelMap := TChannelMap.Create;
     try
@@ -295,11 +307,11 @@ begin
         for i := 0 to lChannelMap.Count-1 do
         begin
           lListItem := TChannelListBoxItem.Create(lbChannels);
-          lListItem.Parent := lbChannels;
           lListItem.Stored := False;
           lListItem.Text := Format('%d. %s', [lChannelMap[i].Channel, lChannelMap[i].Name]);
           lListItem.Channel := lChannelMap[i].Channel;
           lListItem.IsChecked := lChannelMap[i].Visible;
+          lListItem.Parent := lbChannels;
         end;
       finally
         lbChannels.EndUpdate;
@@ -307,17 +319,19 @@ begin
     finally
       lChannelMap.Free;
     end;
-
-    lbChannels.Enabled := True;
-  end
-  else
-    lbChannels.Enabled := False;
+  end;
 
   UpdateChannelCount;
 end;
 
 procedure TMainForm.FormDestroy(Sender: TObject);
 begin
+  if Assigned(fRequestChannelsThread) then
+  begin
+    fRequestChannelsThread.FreeOnTerminate := False;
+    FreeAndNil(fRequestChannelsThread);
+  end;
+
   fConfigManager.RemoveListener(Self);
 
   ProxyServerModule.StopServer;
@@ -412,45 +426,6 @@ begin
   end;
 end;
 
-procedure TMainForm.btnEditChannelsClick(Sender: TObject);
-var
-  lConfig: TServiceConfig;
-  lRequestChannels: Boolean;
-  lCetonConfig: TCetonConfig;
-begin
-  fEditingChannels := True;
-
-  ConfigManager.LockConfig(lConfig);
-  try
-    lRequestChannels := lConfig.Ceton.ChannelMap.Count = 0;
-  finally
-    ConfigManager.UnlockConfig(lConfig);
-  end;
-
-  if lRequestChannels then
-  begin
-    Client.RequestChannelMap;
-
-    lCetonConfig := TCetonConfig.Create;
-    try
-      Client.GetConfig(lCetonConfig);
-
-      ConfigManager.LockConfig(lConfig);
-      try
-       lConfig.Ceton.ChannelMap.Assign(lCetonConfig.ChannelMap, False);
-      finally
-        ConfigManager.UnlockConfig(lConfig);
-      end;
-    finally
-      lCetonConfig.Free;
-    end;
-
-    ConfigManager.Changed(Self, [TServiceConfigSection.Channels]);
-  end;
-
-  FillChannels;
-end;
-
 procedure TMainForm.SaveTimerTimer(Sender: TObject);
 var
   lSections: TServiceConfigSections;
@@ -507,32 +482,66 @@ begin
   end;
 end;
 
-procedure TMainForm.btnRefreshChannelsClick(Sender: TObject);
+procedure TMainForm.RequestChannelsAsync;
 var
   lConfig: TServiceConfig;
   lCetonConfig: TCetonConfig;
 begin
-  fEditingChannels := True;
-
-  Client.RequestChannelMap;
-
-  lCetonConfig := TCetonConfig.Create;
-  try
-    Client.GetConfig(lCetonConfig);
-
-    ConfigManager.LockConfig(lConfig);
-    try
-      lConfig.Ceton.ChannelMap.Assign(lCetonConfig.ChannelMap, False);
-    finally
-      ConfigManager.UnlockConfig(lConfig);
-    end;
-  finally
-    lCetonConfig.Free;
+  if Assigned(fRequestChannelsThread) then
+  begin
+    fRequestChannelsThread.FreeOnTerminate := False;
+    FreeAndNil(fRequestChannelsThread);
   end;
 
-  ConfigManager.Changed(Self, [TServiceConfigSection.Channels]);
+  pnlStatus.Visible := True;
+  pnlStatus.BringToFront;
+  fRequestChannelsThread := TThread.CreateAnonymousThread(
+    procedure()
+    begin
+      try
+        // Needed for XML.. revisit
+        CoInitializeEx(nil, COINIT_APARTMENTTHREADED);
+        try
+          Client.RequestChannelMap;
+        finally
+          CoUninitialize;
+        end;
+      finally
+        TThread.Synchronize(nil,
+          procedure()
+          begin
+            try
+              lCetonConfig := TCetonConfig.Create;
+              try
+                Client.GetConfig(lCetonConfig);
 
-  FillChannels;
+                ConfigManager.LockConfig(lConfig);
+                try
+                  lConfig.Ceton.ChannelMap.Assign(lCetonConfig.ChannelMap, False);
+                finally
+                  ConfigManager.UnlockConfig(lConfig);
+                end;
+              finally
+                lCetonConfig.Free;
+              end;
+
+              ConfigManager.Changed(Self, [TServiceConfigSection.Channels]);
+
+              FillChannels;
+            finally
+              pnlStatus.Visible := False;
+
+              fRequestChannelsThread := nil;
+            end;
+          end);
+      end;
+    end);
+  fRequestChannelsThread.Start;
+end;
+
+procedure TMainForm.btnRefreshChannelsClick(Sender: TObject);
+begin
+  RequestChannelsAsync;
 end;
 
 procedure TMainForm.FillTuners;
@@ -636,7 +645,7 @@ begin
       begin
         if TServiceConfigSection.Channels in aSections then
         begin
-          fEditingChannels := False;
+          pnlChannels.IsExpanded := False;
         end;
 
         UpdateInterface;
@@ -665,7 +674,7 @@ procedure TMainForm.UpdateChannelCount;
 var
   i, lChannelCount: Integer;
 begin
-  if fEditingChannels then
+  if pnlChannels.IsExpanded then
   begin
     lChannelCount := 0;
     for i := 0 to lbChannels.Items.Count-1 do
@@ -1035,6 +1044,31 @@ end;
 procedure TMainForm.LogError(const aLogName, aMessage: String);
 begin
   // TODO
+end;
+
+procedure TMainForm.pnlChannelsExpandedChanged(Sender: TObject);
+var
+  lConfig: TServiceConfig;
+  lRequestChannels: Boolean;
+begin
+  if pnlChannels.IsExpanded then
+  begin
+    // First load of channels list takes forever without this.. something in the
+    // FMX painting logic.
+    Application.ProcessMessages;
+
+    ConfigManager.LockConfig(lConfig);
+    try
+      lRequestChannels := lConfig.Ceton.ChannelMap.Count = 0;
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+
+    if lRequestChannels then
+      RequestChannelsAsync
+    else
+      FillChannels;
+  end;
 end;
 
 end.

@@ -265,7 +265,7 @@ object MainForm: TMainForm
               Size.Height = 22.000000000000000000
               Size.PlatformDefault = False
               TabOrder = 0
-              Text = 'Show Config Folder'
+              Text = 'Show config folder'
               OnClick = btnShowConfigFolderClick
             end
           end
@@ -309,51 +309,46 @@ object MainForm: TMainForm
           TabOrder = 3
           OnMouseDown = PanelMouseDown
           OnResized = PanelResizing
+          OnExpandedChanged = pnlChannelsExpandedChanged
           ContentSize = '200'
           object Layout1: TLayout
             Align = Bottom
             Position.Y = 166.000000000000000000
-            Size.Width = 200.000000000000000000
+            Size.Width = 394.000000000000000000
             Size.Height = 34.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 0
-            object btnEditChannels: TButton
+            object btnRefreshChannels: TButton
+              Align = Left
+              Margins.Left = 10.000000000000000000
+              Margins.Top = 5.000000000000000000
+              Margins.Bottom = 7.000000000000000000
               Position.X = 10.000000000000000000
-              Position.Y = 4.000000000000000000
-              Size.Width = 122.000000000000000000
+              Position.Y = 5.000000000000000000
+              Size.Width = 179.000000000000000000
               Size.Height = 22.000000000000000000
               Size.PlatformDefault = False
               TabOrder = 0
-              Text = 'Edit Channels'
-              OnClick = btnEditChannelsClick
-            end
-            object btnRefreshChannels: TButton
-              Anchors = [akTop, akRight]
-              Position.X = 69.000000000000000000
-              Position.Y = 4.000000000000000000
-              Size.Width = 121.000000000000000000
-              Size.Height = 22.000000000000000000
-              Size.PlatformDefault = False
-              TabOrder = 1
-              Text = 'Request Channels'
+              Text = 'Update channels from Ceton'
               OnClick = btnRefreshChannelsClick
             end
             object lblSelectedChannels: TLabel
-              Position.X = 135.000000000000000000
-              Position.Y = 7.000000000000000000
-              Size.Width = 161.000000000000000000
-              Size.Height = 17.000000000000000000
+              Align = Right
+              Margins.Right = 10.000000000000000000
+              Position.X = 224.000000000000000000
+              Size.Width = 160.000000000000000000
+              Size.Height = 34.000000000000000000
               Size.PlatformDefault = False
-              TabOrder = 2
+              TextSettings.HorzAlign = Trailing
+              TabOrder = 1
             end
           end
           object lbChannels: TListBox
             Align = Client
-            Enabled = False
             Margins.Left = 10.000000000000000000
             Margins.Top = 9.000000000000000000
             Margins.Right = 10.000000000000000000
-            Size.Width = 180.000000000000000000
+            Size.Width = 374.000000000000000000
             Size.Height = 157.000000000000000000
             Size.PlatformDefault = False
             TabOrder = 1
@@ -363,7 +358,7 @@ object MainForm: TMainForm
             DefaultItemStyles.GroupFooterStyle = ''
             ShowCheckboxes = True
             OnChangeCheck = lbChannelsChangeCheck
-            Viewport.Width = 176.000000000000000000
+            Viewport.Width = 370.000000000000000000
             Viewport.Height = 153.000000000000000000
           end
         end
@@ -1986,6 +1981,72 @@ object MainForm: TMainForm
       Size.PlatformDefault = False
       TextSettings.VertAlign = Leading
       TabOrder = 0
+    end
+  end
+  object pnlStatus: TLayout
+    Align = Contents
+    HitTest = True
+    Size.Width = 400.000000000000000000
+    Size.Height = 537.000000000000000000
+    Size.PlatformDefault = False
+    Visible = False
+    TabOrder = 6
+    object Layout4: TLayout
+      Align = Client
+      Size.Width = 400.000000000000000000
+      Size.Height = 537.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 0
+      object FillEffect1: TFillEffect
+        Color = xA1000000
+      end
+    end
+    object Layout5: TLayout
+      Align = Center
+      Size.Width = 161.000000000000000000
+      Size.Height = 31.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 1
+      object RoundRect1: TRoundRect
+        Align = Top
+        Corners = [TopLeft, TopRight]
+        Fill.Color = claWhite
+        Size.Width = 161.000000000000000000
+        Size.Height = 10.000000000000000000
+        Size.PlatformDefault = False
+        Stroke.Kind = None
+      end
+      object RoundRect2: TRoundRect
+        Align = Bottom
+        Corners = [BottomLeft, BottomRight]
+        Fill.Color = claWhite
+        Position.Y = 21.000000000000000000
+        Size.Width = 161.000000000000000000
+        Size.Height = 10.000000000000000000
+        Size.PlatformDefault = False
+        Stroke.Kind = None
+      end
+      object RoundRect3: TRoundRect
+        Align = Client
+        Corners = []
+        Fill.Color = claWhite
+        Size.Width = 161.000000000000000000
+        Size.Height = 11.000000000000000000
+        Size.PlatformDefault = False
+        Stroke.Kind = None
+      end
+      object Label17: TLabel
+        Align = Contents
+        StyledSettings = [Family, Size, FontColor]
+        Size.Width = 161.000000000000000000
+        Size.Height = 31.000000000000000000
+        Size.PlatformDefault = False
+        TextSettings.Font.StyleExt = {00070000000000000004000000}
+        TextSettings.HorzAlign = Center
+        TextSettings.WordWrap = False
+        Text = 'Loading Channels...'
+        TabOrder = 3
+      end
     end
   end
 end
