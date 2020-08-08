@@ -6,6 +6,7 @@ uses
   System.SysUtils,
   System.Classes,
   System.Diagnostics,
+  System.Math,
   Web.HTTPApp,
   Web.WebReq,
   FMX.Types,
@@ -68,6 +69,8 @@ type
     procedure HandleException;
 
     function GetAddress(const aRequest: TWebRequest): String;
+
+    procedure CheckClientChannelMapUpdated;
 
     procedure GetLineup(const aLineup: TLineup);
     procedure SendTuneResponse(const aTuner, aChannel: Integer; const aAllowedDisabledTuners: Boolean; const aTest: Boolean; const aDurationSec: Integer; const aRemux: Boolean; const Response: TWebResponse);
@@ -230,6 +233,8 @@ begin
     // If Create here
     lStream := TCetonVideoStream.Create(Client, aTuner, aChannel, aAllowedDisabledTuners, aRemux);
     try
+      CheckClientChannelMapUpdated;
+
       lStream.OnCheckAbort :=
         procedure(var aAbort: Boolean)
         begin
@@ -371,12 +376,44 @@ begin
   end;
 end;
 
+procedure TProxyWebModule.CheckClientChannelMapUpdated;
+var
+  lCetonConfig: TCetonConfig;
+  lConfig: TServiceConfig;
+  lDateTime: TDateTime;
+begin
+  lDateTime := Client.ChannelMapRequestDateTime;
+
+  ConfigManager.LockConfig(lConfig);
+  try
+    if CompareValue(lDateTime, lConfig.Ceton.ChannelMap.RequestDateTime) <= 0 then
+      Exit;
+  finally
+    ConfigManager.UnlockConfig(lConfig);
+  end;
+
+  lCetonConfig := TCetonConfig.Create;
+  try
+    Client.GetConfig(lCetonConfig);
+
+    ConfigManager.LockConfig(lConfig);
+    try
+      lConfig.Ceton.ChannelMap.Assign(lCetonConfig.ChannelMap, False);
+    finally
+      ConfigManager.UnlockConfig(lConfig);
+    end;
+  finally
+    lCetonConfig.Free;
+  end;
+
+  ConfigManager.Changed(Client, [TServiceConfigSection.Channels]);
+end;
+
 procedure TProxyWebModule.GetLineup(const aLineup: TLineup);
 var
   lChannelMapItem: TChannelMapItem;
   i: Integer;
   lConfig: TServiceConfig;
-  lCetonConfig: TCetonConfig;
   lRequestChannels: Boolean;
   lAddress: String;
   lPort: Integer;
@@ -393,21 +430,7 @@ begin
   begin
     Client.RequestChannelMap;
 
-    lCetonConfig := TCetonConfig.Create;
-    try
-      Client.GetConfig(lCetonConfig);
-
-      ConfigManager.LockConfig(lConfig);
-      try
-        lConfig.Ceton.ChannelMap.Assign(lCetonConfig.ChannelMap, False);
-      finally
-        ConfigManager.UnlockConfig(lConfig);
-      end;
-    finally
-      lCetonConfig.Free;
-    end;
-
-    ConfigManager.Changed(Client, [TServiceConfigSection.Channels]);
+    CheckClientChannelMapUpdated;
   end;
 
   lChannelMap := TChannelMap.create;

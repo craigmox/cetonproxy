@@ -55,6 +55,7 @@ const
 type
   ECetonClosedError = class(Exception);
   ECetonError = class(Exception);
+  ECetonChannelError = class(ECetonError);
 
   TChannelMap = class;
   TTunerConfigList = class;
@@ -381,6 +382,7 @@ type
     function GetListenIP: String;
     function GetEnabledTunerCount: Integer;
     function GetModel: TCetonModel;
+    function GetChannelMapRequestDataTime: TDateTime;
   public
     constructor Create;
     destructor Destroy; override;
@@ -402,6 +404,7 @@ type
     property ListenIP: String read GetListenIP;
     property EnabledTunerCount: Integer read GetEnabledTunerCount;
     property Model: TCetonModel read GetModel;
+    property ChannelMapRequestDateTime: TDateTime read GetChannelMapRequestDataTime;
   end;
 
   TCetonViewerStats = record
@@ -894,7 +897,7 @@ begin
       Sleep(aWaitMs);
   until (lTries >= aTries);
 
-  raise ECetonError.CreateFmt('Unable to get value %s:%s for tuner %d', [aServiceName, aVarName, aTunerID]);
+  raise ECetonError.CreateFmt('Unable to get value "%s:%s" for tuner %d', [aServiceName, aVarName, aTunerID]);
 end;
 
 class function TREST.VarMatches(const aValue: String): TValidateValueCallback;
@@ -1114,6 +1117,10 @@ begin
     try
       NeedClient;
 
+      // Request channel map if it's empty
+      if fConfig.ChannelMap.Count = 0 then
+        TREST.RequestChannelMap(fClient, fConfig.ChannelMap);
+
       aViewer.TunerIndex := aTuner;
       if aViewer.TunerIndex < 0 then
       begin
@@ -1160,11 +1167,6 @@ begin
           raise ECetonError.CreateFmt('Invalid tuner: %d', [aTuner]);
       end;
 
-      lChannelIndex := fConfig.ChannelMap.IndexOf(aChannel);
-      if lChannelIndex = -1 then
-        raise ECetonError.CreateFmt('Unknown channel: %d', [aChannel]);
-      lChannel := fConfig.ChannelMap[lChannelIndex];
-
       lTuner := fTunerList[aViewer.TunerIndex];
 
       if lTuner.Active then
@@ -1183,48 +1185,72 @@ begin
       try
         lCount := 0;
         repeat
-          // Only send tuning commands if we are the first to request from the tuner or
-          // we're on a second/third try
-          if (lCount > 0) or (lTuner.RefCount = 0) then
-          begin
-            if not SameText(TREST.GetVar(fClient, aViewer.TunerIndex, 'av', 'TransportState'), 'STOPPED') then
+          lReceivedPacket := False;
+
+          try
+            lChannelIndex := fConfig.ChannelMap.IndexOf(aChannel);
+            if lChannelIndex = -1 then
+              raise ECetonChannelError.CreateFmt('Unknown channel: %d', [aChannel]);
+            lChannel := fConfig.ChannelMap[lChannelIndex];
+
+            // Only send tuning commands if we are the first to request from the tuner or
+            // we're on a second/third try
+            if (lCount > 0) or (lTuner.RefCount = 0) then
             begin
-              TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
-              TREST.WaitForVar(fClient, aViewer.TunerIndex, 'av', 'TransportState', 5, 1000, TREST.VarMatches('STOPPED'));
+              if not SameText(TREST.GetVar(fClient, aViewer.TunerIndex, 'av', 'TransportState'), 'STOPPED') then
+              begin
+                TREST.StopStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+                TREST.WaitForVar(fClient, aViewer.TunerIndex, 'av', 'TransportState', 5, 1000, TREST.VarMatches('STOPPED'));
+              end;
+
+              TREST.StartStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+
+              TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
+              TREST.WaitForVar(fClient, aViewer.TunerIndex, 'tuner', 'Frequency', 5, 1000, TREST.VarMatches(IntToStr(lChannel.Frequency)));
+              TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+
+  //            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+
+      //        TREST.TuneProgram(fClient, aViewer.TunerIndex, lChannel.ItemProgram);
+      //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
+
+      //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
+
+              // Getlock, Service: cas, Var: Lock
             end;
 
-            TREST.StartStream(fClient, aViewer.TunerIndex, ListenIP, lTuner.Sink.Port);
+            // Use another reader to wait for signal before returning
+            // If there's an issue, then we can fix it right now
+            lTuner.Sink.RegisterReader(lReader);
+            try
+              lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
+            finally
+              lTuner.Sink.UnregisterReader(lReader);
+            end;
+            if not lReceivedPacket then
+              raise ECetonError.CreateFmt('No video data received for tuner %d', [aViewer.TunerIndex]);
+          except
+            on e: ECetonError do
+            begin
+              // Catch ECetonErrors and log them, but do not stop trying
+              TLogger.Log(cLogDefault, e.Message);
 
-            TREST.TuneChannel(fClient, aViewer.TunerIndex, aChannel);
-            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'tuner', 'Frequency', 5, 1000, TREST.VarMatches(IntToStr(lChannel.Frequency)));
-            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
-
-//            TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
-
-    //        TREST.TuneProgram(fClient, aViewer.TunerIndex, lChannel.ItemProgram);
-    //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'mux', 'ProgramNumber', 5, 1000, TREST.VarMatches(IntToStr(lChannel.ItemProgram)));
-
-    //        TREST.WaitForVar(fClient, aViewer.TunerIndex, 'diag', 'CopyProtectionStatus', 10, 1000, TREST.VarContains('Copy Free'));
-
-            // Getlock, Service: cas, Var: Lock
+              // If the problem is related to the channel map changing (such as frequencies changing),
+              // try grabbing a new channel map from the Ceton before trying again.  Only allow requesting
+              // a new channel map automatically every hour.
+              if fConfig.ChannelMap.Expired(1/24) then
+              begin
+                TREST.RequestChannelMap(fClient, fConfig.ChannelMap);
+              end
+              else if e is ECetonChannelError then
+                raise;
+            end;
           end;
 
-          // Use another reader to wait for signal before returning
-          // If there's an issue, then we can fix it right now
-          lTuner.Sink.RegisterReader(lReader);
-          try
-            lReceivedPacket := lTuner.Sink.WaitForSignal(lReader, 5000);
-          finally
-            lTuner.Sink.UnregisterReader(lReader);
-          end;
           Inc(lCount);
 
           if lCount >= 3 then
-          begin
-            TLogger.LogFmt(cLogDefault, 'No video data on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
-
-            raise ECetonError.Create('No video data');
-          end;
+            raise ECetonError.CreateFmt('Unable to start video stream on tuner %d for channel %d', [aViewer.TunerIndex, aChannel]);
         until lReceivedPacket or (lCount >= 3);
 
         // Get other info for logging purposes
@@ -1513,6 +1539,16 @@ begin
   Lock;
   try
     Result := fModel;
+  finally
+    Unlock;
+  end;
+end;
+
+function TCetonClient.GetChannelMapRequestDataTime: TDateTime;
+begin
+  Lock;
+  try
+    Result := fConfig.ChannelMap.RequestDateTime;
   finally
     Unlock;
   end;
