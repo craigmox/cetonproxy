@@ -86,14 +86,18 @@ var
 begin
   if level <= AV_LOG_INFO then
   begin
-    if Assigned(avcl) and (AnsiString(PAVClass(PPointer(avcl)^)^.class_name) = 'AVFormatContext') then
-    begin
-      if Assigned(PAVFormatContext(Avcl)^.pb) and Assigned(PAVFormatContext(Avcl)^.pb.opaque) then
+    try
+      if Assigned(avcl) and (AnsiString(PAVClass(PPointer(avcl)^)^.class_name) = 'AVFormatContext') then
       begin
-        lInt := 1;
-        av_log_format_line(avcl, level, fmt, vl, @lBuf, SizeOf(lBuf)-1, @lint);
-        TVideoConverter(PAVFormatContext(Avcl)^.pb.opaque).LogFmt('%s',[String(AnsiString(lBuf))]);
+        if Assigned(PAVFormatContext(Avcl)^.pb) and Assigned(PAVFormatContext(Avcl)^.pb.opaque) then
+        begin
+          lInt := 1;
+          av_log_format_line(avcl, level, fmt, vl, @lBuf, SizeOf(lBuf)-1, @lint);
+          TVideoConverter(PAVFormatContext(Avcl)^.pb.opaque).LogFmt('%s',[String(AnsiString(lBuf))]);
+        end;
       end;
+    except
+      // Eat exception
     end;
   end;
 end;
@@ -116,32 +120,39 @@ procedure TVideoConverter.Open;
 var
   lRet: Integer;
 begin
-  fInputFormatContext := avformat_alloc_context;
-  fInputFormatContext.pb := avio_alloc_context(av_malloc(cConverterPacketSize), cConverterPacketSize, 0, Self, _ReadPacket, nil, nil);
-  fInputFormatContext.interrupt_callback.opaque := Self;
-  fInputFormatContext.interrupt_callback.callback := _InterruptCallback;
+  try
+    fInputFormatContext := avformat_alloc_context;
+    fInputFormatContext.pb := avio_alloc_context(av_malloc(cConverterPacketSize), cConverterPacketSize, 0, Self, _ReadPacket, nil, nil);
+    fInputFormatContext.interrupt_callback.opaque := Self;
+    fInputFormatContext.interrupt_callback.callback := _InterruptCallback;
 
-  lRet := avformat_open_input(@fInputFormatContext, nil, nil, nil);
-  if lRet < 0 then
-    ErrorFmt('Could not open input: %s',[GetErrorStr(lRet)]);
+    lRet := avformat_open_input(@fInputFormatContext, nil, nil, nil);
+    if lRet < 0 then
+      ErrorFmt('Could not open input: %s',[GetErrorStr(lRet)]);
 
-  lRet := avformat_find_stream_info(fInputFormatContext, nil);
-  if (lRet < 0) or (not Assigned(fInputFormatContext.iformat)) then
-    ErrorFmt('Failed to retrieve input stream information: %s',[GetErrorStr(lRet)]);
+    lRet := avformat_find_stream_info(fInputFormatContext, nil);
+    if (lRet < 0) or (not Assigned(fInputFormatContext.iformat)) then
+      ErrorFmt('Failed to retrieve input stream information: %s',[GetErrorStr(lRet)]);
 
-//  av_dump_format(ifmt_ctx, 0, in_filename, 0);
+  //  av_dump_format(ifmt_ctx, 0, in_filename, 0);
 
-  avformat_alloc_output_context2(@fOutputFormatContext, nil, fInputFormatContext.iformat.name, nil);
-  if not Assigned(fOutputFormatContext) then
-    ErrorFmt('Could not create output context: %s',[GetErrorStr(lRet)]);
+    avformat_alloc_output_context2(@fOutputFormatContext, nil, fInputFormatContext.iformat.name, nil);
+    if not Assigned(fOutputFormatContext) then
+      ErrorFmt('Could not create output context: %s',[GetErrorStr(lRet)]);
 
-  fOutputFormatContext.pb := avio_alloc_context(av_malloc(cConverterPacketSize), cConverterPacketSize, 1, Self, nil, _WritePacket, nil);
+    fOutputFormatContext.pb := avio_alloc_context(av_malloc(cConverterPacketSize), cConverterPacketSize, 1, Self, nil, _WritePacket, nil);
 
-  SetupStreams;
+    SetupStreams;
 
-  lRet := avformat_write_header(fOutputFormatContext, nil);
-  if lRet < 0 then
-    ErrorFmt('Error occurred writing output header: %s', [GetErrorStr(lRet)]);
+    lRet := avformat_write_header(fOutputFormatContext, nil);
+    if lRet < 0 then
+      ErrorFmt('Error occurred writing output header: %s', [GetErrorStr(lRet)]);
+  except
+    on e: EVideoConverterError do
+      raise;
+    on e: Exception do
+      ErrorFmt('Error during open: %s', [e.Message]);
+  end;
 end;
 
 function TVideoConverter.ReadPacket(const buf: PByte;
@@ -161,57 +172,64 @@ var
   lInStream, lOutStream: PAVStream;
   lInCodecParams: PAVCodecParameters;
 begin
-  lStreamIndex := 0;
+  try
+    lStreamIndex := 0;
 
-  SetLength(fStreamMapping, fInputFormatContext.nb_streams);
-  SetLength(fStreamInputDTS, Length(fStreamMapping));
+    SetLength(fStreamMapping, fInputFormatContext.nb_streams);
+    SetLength(fStreamInputDTS, Length(fStreamMapping));
 
-  for i := 0 to High(fStreamMapping) do
-  begin
-    lInStream := PPtrIdx(fInputFormatContext.streams, i);
-    lInCodecParams := lInStream.codecpar;
-
-    if fProgramFilter > -1 then
+    for i := 0 to High(fStreamMapping) do
     begin
-      if avformat_match_stream_specifier(fInputFormatContext, lInStream, PAnsiChar(AnsiString('p:'+IntToStr(fProgramFilter)))) = 0 then
+      lInStream := PPtrIdx(fInputFormatContext.streams, i);
+      lInCodecParams := lInStream.codecpar;
+
+      if fProgramFilter > -1 then
+      begin
+        if avformat_match_stream_specifier(fInputFormatContext, lInStream, PAnsiChar(AnsiString('p:'+IntToStr(fProgramFilter)))) = 0 then
+        begin
+          fStreamMapping[i] := -1;
+          Continue;
+        end;
+      end;
+
+      if (lInCodecParams.codec_type <> AVMEDIA_TYPE_AUDIO) and
+         (lInCodecParams.codec_type <> AVMEDIA_TYPE_VIDEO) and
+         (lInCodecParams.codec_type <> AVMEDIA_TYPE_SUBTITLE) then
       begin
         fStreamMapping[i] := -1;
         Continue;
       end;
+
+      fStreamInputDTS[i] := AV_NOPTS_VALUE;
+
+      fStreamMapping[i] := lStreamIndex;
+      Inc(lStreamIndex);
+
+      lOutStream := avformat_new_stream(fOutputFormatContext, nil);
+      if not Assigned(lOutStream) then
+        ErrorFmt('Failed allocating output stream', []);
+
+  //    lOutStream.id := lInStream.id; // Causes black screen
+      lOutStream.time_base := lInStream.time_base;
+      lOutStream.avg_frame_rate := lInStream.avg_frame_rate;
+
+      // Copy metadata (which includes audio language info)
+      if Assigned(lInStream.metadata) then
+        av_dict_copy(@lOutStream.metadata, lInStream.metadata, 0);
+
+      lRet := avcodec_parameters_copy(lOutStream.codecpar, lInCodecParams);
+      if lRet < 0 then
+        ErrorFmt('Failed to copy codec parameters: %s', [GetErrorStr(lRet)]);
+
+      lOutStream.codecpar.codec_tag.tag := 0;
     end;
-
-    if (lInCodecParams.codec_type <> AVMEDIA_TYPE_AUDIO) and
-       (lInCodecParams.codec_type <> AVMEDIA_TYPE_VIDEO) and
-       (lInCodecParams.codec_type <> AVMEDIA_TYPE_SUBTITLE) then
-    begin
-      fStreamMapping[i] := -1;
-      Continue;
-    end;
-
-    fStreamInputDTS[i] := AV_NOPTS_VALUE;
-
-    fStreamMapping[i] := lStreamIndex;
-    Inc(lStreamIndex);
-
-    lOutStream := avformat_new_stream(fOutputFormatContext, nil);
-    if not Assigned(lOutStream) then
-      ErrorFmt('Failed allocating output stream', []);
-
-//    lOutStream.id := lInStream.id; // Causes black screen
-    lOutStream.time_base := lInStream.time_base;
-    lOutStream.avg_frame_rate := lInStream.avg_frame_rate;
-
-    // Copy metadata (which includes audio language info)
-    if Assigned(lInStream.metadata) then
-      av_dict_copy(@lOutStream.metadata, lInStream.metadata, 0);
-
-    lRet := avcodec_parameters_copy(lOutStream.codecpar, lInCodecParams);
-    if lRet < 0 then
-      ErrorFmt('Failed to copy codec parameters: %s', [GetErrorStr(lRet)]);
-
-    lOutStream.codecpar.codec_tag.tag := 0;
+  //  av_dump_format(ofmt_ctx, 0, nil, 1);
+  except
+    on e: EVideoConverterError do
+      raise;
+    on e: Exception do
+      ErrorFmt('Error during setup: %s', [e.Message]);
   end;
-//  av_dump_format(ofmt_ctx, 0, nil, 1);
 end;
 
 function TVideoConverter.WritePacket(const buf: PByte;
@@ -226,34 +244,54 @@ begin
 end;
 
 procedure TVideoConverter.Close;
+var
+  lAVIOContext: PAVIOContext;
 begin
   fFinished := True;
+  try
+    if Assigned(fOutputFormatContext) then
+      av_write_trailer(fOutputFormatContext);
 
-  if Assigned(fOutputFormatContext) then
-    av_write_trailer(fOutputFormatContext);
+    // NOTE: FFMPEG code internally frees avformat context before closing avio
 
-  if Assigned(fOutputFormatContext) then
-  begin
-    av_freep(@fOutputFormatContext.pb.buffer);
-    avio_context_free(@fOutputFormatContext.pb);
+    if Assigned(fInputFormatContext) then
+    begin
+      lAVIOContext := fInputFormatContext.pb;
 
-    avformat_free_context(fOutputFormatContext);
+      // This flushes packet queue and calls avformat_free_context.  It does not
+      // call avio_close if context.flags contains AVFMT_FLAG_CUSTOM_IO
+      avformat_close_input(@fInputFormatContext);
 
-    fOutputFormatContext := nil;
+      // avio_close calls avio_flush, frees the buffer, and calls avio_context_free,
+      // but can only be used if avio_open was called.
+      avio_flush(lAVIOContext);
+      av_freep(@lAVIOContext.buffer);
+      avio_context_free(@lAVIOContext);
+
+      fInputFormatContext := nil;
+    end;
+
+    if Assigned(fOutputFormatContext) then
+    begin
+      lAVIOContext := fOutputFormatContext.pb;
+
+      avformat_free_context(fOutputFormatContext);
+
+      // avio_close calls avio_flush, frees the buffer, and calls avio_context_free,
+      // but can only be used if avio_open was called.
+      avio_flush(lAVIOContext);
+      av_freep(@lAVIOContext.buffer);
+      avio_context_free(@lAVIOContext);
+
+      fOutputFormatContext := nil;
+    end;
+
+    fStreamMapping := nil;
+    fStreamInputDTS := nil;
+  except
+    on e: Exception do
+      ErrorFmt('Error during close: %s', [e.Message]);
   end;
-
-  if Assigned(fInputFormatContext) then
-  begin
-    av_freep(@fInputFormatContext.pb.buffer);
-    avio_context_free(@fInputFormatContext.pb);
-
-    avformat_close_input(@fInputFormatContext);
-
-    fInputFormatContext := nil;
-  end;
-
-  fStreamMapping := nil;
-  fStreamInputDTS := nil;
 end;
 
 constructor TVideoConverter.Create;
