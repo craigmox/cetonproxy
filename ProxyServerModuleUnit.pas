@@ -203,18 +203,18 @@ begin
 
     try
       fServer.Bindings.Clear;
-      // Needed by NextPVR to find lineup.xml
-      with fServer.Bindings.Add do
-      begin
-        IP := lListenIP;
-        Port := 80;
-      end;
       with fServer.Bindings.Add do
       begin
         IP := lListenIP;
         Port := lHTTPPort;
       end;
       fServer.Active := True;
+      // Needed by NextPVR to find lineup.xml
+      with fServer.Bindings.Add do
+      begin
+        IP := lListenIP;
+        Port := 80;
+      end;
     except
       TLogger.Log(cLogDefault, 'Unable to bind HTTP server listening port');
     end;
