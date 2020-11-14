@@ -38,7 +38,7 @@ type
     fStreamInputDTS: TArray<Int64>;
 
     fProgramFilter: Integer;
-    fFinished: Boolean;
+    fOpened, fFinished: Boolean;
     fOnInterrupt: TVideoInterruptEvent;
 
     function GetErrorStr(const aErrorCode: Integer): String;
@@ -147,6 +147,8 @@ begin
     lRet := avformat_write_header(fOutputFormatContext, nil);
     if lRet < 0 then
       ErrorFmt('Error occurred writing output header: %s', [GetErrorStr(lRet)]);
+
+    fOpened := True;
   except
     on e: EVideoConverterError do
       raise;
@@ -249,8 +251,9 @@ var
 begin
   fFinished := True;
   try
-    if Assigned(fOutputFormatContext) then
-      av_write_trailer(fOutputFormatContext);
+    if fOpened then
+      if Assigned(fOutputFormatContext) then
+        av_write_trailer(fOutputFormatContext);
 
     // NOTE: FFMPEG code internally frees avformat context before closing avio
 

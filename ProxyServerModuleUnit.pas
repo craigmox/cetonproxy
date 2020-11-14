@@ -203,11 +203,14 @@ begin
 
     try
       fServer.Bindings.Clear;
-      // Needed by NextPVR to find lineup.xml
-      with fServer.Bindings.Add do
+      if FindCmdLineSwitch('port80') then
       begin
-        IP := lListenIP;
-        Port := 80;
+        // Previously needed by NextPVR, but does not appear to be the case any more.
+        with fServer.Bindings.Add do
+        begin
+          IP := lListenIP;
+          Port := 80;
+        end;
       end;
       with fServer.Bindings.Add do
       begin
