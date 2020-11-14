@@ -5,6 +5,7 @@ An app that allows a Ceton InfiniTV PCI/USB/ethernet tuner to appear as a Silico
 - NextPVR v5
 - Plex
 - Emby
+  - Requires Port 80: cetonproxy.exe -port80
 
 # Project status
 
