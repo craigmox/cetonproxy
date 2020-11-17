@@ -50,6 +50,8 @@ type
       Response: TWebResponse; var Handled: Boolean);
     procedure ProxyWebModuleLineupXMLActionAction(Sender: TObject;
       Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
+    procedure ProxyWebModuleLineupM3UActionAction(Sender: TObject;
+      Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
     procedure ProxyWebModuleTunerActionAction(Sender: TObject;
       Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
     procedure WebModuleCreate(Sender: TObject);
@@ -370,6 +372,32 @@ begin
       end;
     finally
       TLogger.LogFmt(cLogDefault, 'Finished lineup.json request from %s', [Request.RemoteAddr]);
+    end;
+  except
+    HandleException;
+  end;
+end;
+
+procedure TProxyWebModule.ProxyWebModuleLineupM3UActionAction(Sender: TObject;
+  Request: TWebRequest; Response: TWebResponse; var Handled: Boolean);
+var
+  lLineup: TLineup;
+begin
+  Handled := True;
+  try
+    TLogger.LogFmt(cLogDefault, 'Received lineup.m3u request from %s', [Request.RemoteAddr]);
+    try
+      lLineup := TLineup.Create;
+      try
+        GetLineup(lLineup);
+
+        Response.ContentType := 'audio/x-mpegurl';
+        Response.Content := lLineup.ToM3U;
+      finally
+        lLineup.Free;
+      end;
+    finally
+      TLogger.LogFmt(cLogDefault, 'Finished lineup.m3u request from %s', [Request.RemoteAddr]);
     end;
   except
     HandleException;

@@ -29,6 +29,11 @@ object ProxyWebModule: TProxyWebModule
       OnAction = ProxyWebModuleLineupXMLActionAction
     end
     item
+      Name = 'LineupM3UAction'
+      PathInfo = '/lineup.m3u'
+      OnAction = ProxyWebModuleLineupM3UActionAction
+    end
+    item
       Name = 'TunerAction'
       PathInfo = '/tuner[0-99]/v*'
       OnAction = ProxyWebModuleTunerActionAction

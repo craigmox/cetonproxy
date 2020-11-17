@@ -218,6 +218,7 @@ type
 
     function ToJSON: String;
     function ToXML: String;
+    function ToM3U: String;
   end;
 
   THDHRUtils = class abstract
@@ -332,6 +333,25 @@ begin
   end;
 
   Result := lXMLDoc.XML.Text;
+end;
+
+function TLineup.ToM3U: String;
+var
+  out: string;
+  lItem: TLineupItem;
+  i: Integer;
+begin
+  out := '#EXTM3U' + #13;
+
+  for i := 0 to fList.Count-1 do
+  begin
+    lItem := fList[i];
+
+    out := out + '#EXTINF:0 channel-number="' + lItem.GuideNumber + '",' + lItem.GuideName + #13;
+    out := out + lItem.URL + #13 + #13;
+  end;
+
+  Result := out;
 end;
 
 { TTag }
